@@ -38,7 +38,7 @@ func TestComposeArgs(t *testing.T) {
 	line := strings.Join(args, " ")
 	for _, want := range []string{
 		"-copyts", "-use_wallclock_as_timestamps 1", "-i /w/input-0.sdp", "-i /w/input-1.sdp",
-		"color=c=0x14161c:s=1280x720:r=30", "format=yuv420p,realtime,setpts=RTCTIME/1000000/TB", "arealtime,asetpts=RTCTIME/1000000/TB[a0]",
+		"color=c=0x14161c:s=1280x720:r=30", "realtime",
 		"drawbox=x=648:y=186:w=620:h=348", "textfile=/w/card-1.txt", // Beto's card
 		"[0:v]fps=30,scale=620:348", "overlay=x=12:y=186", "textfile=/w/label-0.txt", // Ana's tile
 		"setparams=range=tv", "setpts=PTS-STARTPTS[vout]",
@@ -223,5 +223,52 @@ func TestRedactHidesStreamKeys(t *testing.T) {
 	got := redact("[tee] rtmps://a.rtmp.youtube.com/live2/abcd-efgh-1234: I/O error (key abcd-efgh-1234)", outputs)
 	if strings.Contains(got, "abcd-efgh-1234") || !strings.Contains(got, "rtmps://a.rtmp.youtube.com/live2/••••") {
 		t.Fatalf("redacted = %s", got)
+	}
+}
+
+// Audio must keep the RTP media clock: wall-clock stamping of bursty packets made
+// aresample (async) insert blocks of silence and starve the live inputs.
+func TestAudioInputsUseTheMediaClock(t *testing.T) {
+	inputs := []rtpInput{
+		{ref: domain.SourceRef{Participant: "p-1", Source: domain.SourceCamera}, sdpPath: "/w/input-0.sdp"},
+		{ref: domain.SourceRef{Participant: "p-1", Source: domain.SourceMicrophone}, sdpPath: "/w/input-1.sdp"},
+	}
+	args, err := composeArgs(graphParams{plan: plan(), inputs: inputs, font: "/f/DejaVuSans.ttf", text: text})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var perInput [][]string // options preceding each -i
+	var current []string
+	for _, a := range args {
+		if a == "-i" {
+			perInput = append(perInput, current)
+			current = nil
+			continue
+		}
+		current = append(current, a)
+	}
+	if len(perInput) != 2 {
+		t.Fatalf("expected 2 inputs, got %d", len(perInput))
+	}
+	has := func(opts []string, flag string) bool {
+		for _, o := range opts {
+			if o == flag {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(perInput[0], "-use_wallclock_as_timestamps") {
+		t.Error("video input must be stamped with the wall clock")
+	}
+	if has(perInput[1], "-use_wallclock_as_timestamps") {
+		t.Error("audio input must keep its RTP media clock")
+	}
+	line := strings.Join(args, " ")
+	if strings.Contains(line, "async=") {
+		t.Errorf("aresample async must not be used:\n%s", line)
+	}
+	if !strings.Contains(line, "[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=N/SR/TB[a1]") {
+		t.Errorf("audio chain must count samples:\n%s", line)
 	}
 }

@@ -40,13 +40,8 @@ var safePath = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
 // (-use_wallclock_as_timestamps) and -copyts keeps those absolute values, so
 // all participants share one timeline (lip sync per participant, no drift
 // between them). The background and the silent audio bed are generated in
-// the graph, paced by realtime/arealtime and then stamped with the wall clock
-// at the moment they are emitted (RTCTIME), so the master timeline always
-// tracks real time. (Anchoring them to the process start instead, RTCSTART +
-// n/fps, bakes every stall into a permanent offset: the inputs, stamped with
-// the true clock, end up that far ahead of the master, FFmpeg stops reading
-// them, the UDP socket buffers fill and packets are dropped.) The final setpts
-// rebases the output to zero.
+// the graph, aligned to the same clock (RTCSTART) and paced by
+// realtime/arealtime; the final setpts rebases the output to zero.
 func composeArgs(p graphParams) ([]string, error) {
 	out := p.plan.Output
 	args := []string{"-hide_banner", "-loglevel", "warning", "-nostdin", "-copyts"}
@@ -56,9 +51,14 @@ func composeArgs(p graphParams) ([]string, error) {
 			return nil, fmt.Errorf("unsafe input path %q", in.sdpPath)
 		}
 		index[in.ref] = i
+		args = append(args, "-protocol_whitelist", "file,udp,rtp")
+		if in.ref.Source.IsVideo() {
+			// Video shares the wall clock (see above). Audio keeps its RTP media clock:
+			// stamping packets with their (bursty) arrival time made aresample insert
+			// 0.3 s blocks of silence and squeeze the signal continuously.
+			args = append(args, "-use_wallclock_as_timestamps", "1")
+		}
 		args = append(args,
-			"-protocol_whitelist", "file,udp,rtp",
-			"-use_wallclock_as_timestamps", "1",
 			"-fflags", "+nobuffer",
 			"-analyzeduration", "0",
 			"-probesize", "32",
@@ -73,12 +73,11 @@ func composeArgs(p graphParams) ([]string, error) {
 
 	var g []string
 	fps := strconv.Itoa(out.Framerate)
-	// Stamp with the real clock after pacing (see composeArgs).
-	wallclock := "RTCTIME/1000000/TB"
+	clockAlign := "setpts=PTS+RTCSTART/1000000/TB"
 
 	// Background with the name cards drawn on it.
 	bg := []string{fmt.Sprintf("color=c=%s:s=%dx%d:r=%s", backgroundColor, out.Width, out.Height, fps),
-		"format=yuv420p", "realtime", "setpts=" + wallclock}
+		"format=yuv420p", clockAlign, "realtime"}
 	for i, t := range p.plan.Tiles {
 		_, hasInput := index[t.Source]
 		if t.Kind == domain.TileVideo && hasInput {
@@ -137,7 +136,7 @@ func composeArgs(p graphParams) ([]string, error) {
 
 	// Audio: a silent bed (so the stream always has audio) mixed with every
 	// live microphone / screen audio.
-	g = append(g, "anullsrc=r=48000:cl=stereo,arealtime,asetpts="+wallclock+"[a0]")
+	g = append(g, "anullsrc=r=48000:cl=stereo,"+strings.Replace(clockAlign, "setpts", "asetpts", 1)+",arealtime[a0]")
 	mix := []string{"[a0]"}
 	for k, ref := range p.plan.Audio {
 		i, ok := index[ref]
@@ -145,7 +144,7 @@ func composeArgs(p graphParams) ([]string, error) {
 			continue
 		}
 		label := fmt.Sprintf("a%d", k+1)
-		g = append(g, fmt.Sprintf("[%d:a]aresample=48000:async=1000,aformat=sample_fmts=fltp:channel_layouts=stereo[%s]", i, label))
+		g = append(g, fmt.Sprintf("[%d:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=N/SR/TB[%s]", i, label))
 		mix = append(mix, "["+label+"]")
 	}
 	g = append(g, fmt.Sprintf("%samix=inputs=%d:duration=first:dropout_transition=0:normalize=0,asetpts=PTS-STARTPTS[aout]",
