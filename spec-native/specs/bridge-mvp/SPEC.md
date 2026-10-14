@@ -3,10 +3,10 @@
 ```toml
 artifact_type = "spec"
 id            = "SPEC-0001"
-state         = "active"
+state         = "done"
 owner         = "rafex"
 created_at    = "2026-10-13"
-updated_at    = "2026-10-13"
+updated_at    = "2026-10-14"
 replaces      = "none"
 related_tasks       = ["TASK-0001", "TASK-0002", "TASK-0003", "TASK-0004", "TASK-0005", "TASK-0006", "TASK-0007", "TASK-0008", "TASK-0009"]
 related_decisions   = ["DEC-0001", "DEC-0002", "DEC-0003", "DEC-0004", "DEC-0005", "DEC-0006"]

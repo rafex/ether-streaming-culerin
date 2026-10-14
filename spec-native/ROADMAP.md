@@ -4,10 +4,7 @@ Dirección del proyecto en el tiempo.
 
 ## Ahora
 
-- **bridge-mvp** (`SPEC-0001`): señalización v2, SFU Pion, composición FFmpeg
-  con empalme sin cortes, API + consola del anfitrión, contenedor y E2E con el
-  webrelay. Implementado; falta la prueba manual con un destino real
-  (YouTube/Twitch).
+- **bridge-mvp** (`SPEC-0001`): cerrada el 2026-10-14. Desplegada en k3s Server 2 (`streaming.rafex.app`) con `rafex/ether-streaming-gitops`.
 
 ## Después
 

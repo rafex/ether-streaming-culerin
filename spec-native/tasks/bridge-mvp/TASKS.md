@@ -5,7 +5,7 @@ artifact_type = "task_file"
 initiative    = "bridge-mvp"
 spec_id       = "SPEC-0001"
 owner         = "rafex"
-state         = "in_progress"
+state         = "done"
 ```
 
 ## Tareas
@@ -143,7 +143,7 @@ completion_evidence = ["docs/ y spec-native/ completos"]
 ```toml
 id             = "TASK-0009"
 title          = "Prueba con un destino real"
-state          = "todo"
+state = "done"
 priority       = "p1"
 owner          = "rafex"
 labels         = ["manual", "rtmp"]
@@ -151,7 +151,7 @@ dependencies   = ["TASK-0005"]
 expected_files = []
 close_criteria = "La sala se ve en YouTube o Twitch desde la consola"
 validation     = ["prueba manual"]
-completion_evidence = []
+completion_evidence = ["El usuario confirmó el 2026-10-14 que la sala salió al aire a YouTube desde la consola del puente (tras el E2E 5/5 y la emisión a MediaMTX). Además, el despliegue en k3s Server 2 se verificó en producción: HTTPS, wss y llamada WebRTC real entre dos invitados por UDP 30443."]
 ```
 
 TASK-0009 necesita una cuenta con emisión en directo habilitada (manual).
