@@ -45,8 +45,11 @@ flowchart LR
 - Cada pista entra como un SDP (`127.0.0.1:<puerto par>`), con
   `-use_wallclock_as_timestamps 1` y `-copyts`: todas comparten el reloj de
   pared (sincronía por participante, sin deriva entre ellos). El fondo y el
-  silencio se alinean a ese reloj (`RTCSTART`) y marcan el ritmo
-  (`realtime`/`arealtime`); al final se rebasa a cero.
+  silencio marcan el ritmo (`realtime`/`arealtime`) y se **estampan con el
+  reloj real al emitirse** (`setpts=RTCTIME/1000000/TB`); al final se rebasa a
+  cero. No se anclan a `RTCSTART + n/fps`: así cada parón (arranque, pico de
+  CPU) se convertía en un desfase permanente respecto a las entradas, FFmpeg
+  dejaba de leerlas, los búferes UDP se llenaban y se perdían paquetes.
 - Salida: x264 `veryfast`/`zerolatency`, GOP de 2 s, sin B-frames, CBR con el
   bitrate de `BRIDGE_OUTPUT`; AAC 48 kHz estéreo. Propiedades de color fijas
   (bt709, rango limitado) para que todas las ejecuciones produzcan el mismo
