@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consola de anfitrión</title>
+  <link rel="stylesheet" href="console.css">
+  <script src="console.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo" aria-hidden="true">◉</span> Ether · Consola de anfitrión</div>
+    <span id="dev-badge" class="badge warn" hidden>Modo desarrollo</span>
+    <button id="logout" class="ghost" type="button" hidden>Salir</button>
+  </header>
+
+  <main>
+    <section id="login" class="card narrow" hidden>
+      <h1>Acceso del anfitrión</h1>
+      <p class="muted">Introduce el token de administración del puente (<code>BRIDGE_ADMIN_TOKEN</code>).
+        Se guarda solo en esta pestaña.</p>
+      <form id="login-form">
+        <label>Token<input id="login-token" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Entrar</button>
+        <p id="login-error" class="error" role="alert"></p>
+      </form>
+    </section>
+
+    <div id="app" class="layout" hidden>
+      <aside class="card">
+        <h2>Salas</h2>
+        <ul id="room-list" class="room-list"></ul>
+        <details id="new-room">
+          <summary>Nueva sala</summary>
+          <form id="room-form" class="stack">
+            <label>Título<input name="title" required maxlength="120" placeholder="Podcast semanal"></label>
+            <label>Anfitrión<input name="host" required maxlength="60" placeholder="Tu nombre"></label>
+            <label>Identificador (opcional)<input name="id" pattern="[a-z0-9][a-z0-9-]{0,62}" placeholder="podcast-semanal"></label>
+            <label>Avatar (URL https, opcional)<input name="avatar" type="url"></label>
+            <div class="row">
+              <label>Capacidad<input name="capacity" type="number" min="1" max="16" value="8"></label>
+              <label>Composición<select name="layout">
+                <option value="auto">Automática</option><option value="grid">Mosaico</option><option value="speaker">Orador</option>
+              </select></label>
+            </div>
+            <button type="submit">Crear sala</button>
+            <p class="error" role="alert"></p>
+          </form>
+        </details>
+      </aside>
+
+      <section id="empty" class="card muted">Selecciona o crea una sala.</section>
+
+      <section id="room" class="room" hidden>
+        <div class="card room-head">
+          <div>
+            <h1 id="room-title"></h1>
+            <p class="muted"><span id="room-id"></span> · <span id="room-host"></span></p>
+          </div>
+          <div class="air">
+            <span id="air-status" class="badge">Fuera del aire</span>
+            <button id="air-start" type="button">Salir al aire</button>
+            <button id="air-stop" type="button" class="danger" hidden>Detener emisión</button>
+          </div>
+          <p id="air-detail" class="muted small"></p>
+          <p id="room-error" class="error" role="alert"></p>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>Invitación</h2>
+            <div class="row">
+              <label>Validez<select id="invite-ttl">
+                <option value="3600">1 hora</option><option value="86400" selected>24 horas</option><option value="604800">7 días</option>
+              </select></label>
+              <button id="invite-create" type="button">Generar enlace</button>
+            </div>
+            <div id="invite-result" class="invite" hidden>
+              <input id="invite-url" readonly aria-label="Enlace de invitación">
+              <button id="invite-copy" type="button" class="ghost">Copiar</button>
+              <p class="muted small">Caduca: <span id="invite-expiry"></span></p>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Composición</h2>
+            <label>Diseño<select id="layout-mode">
+              <option value="auto">Automática (pantalla en foco)</option><option value="grid">Mosaico</option><option value="speaker">Orador (primero en escena)</option>
+            </select></label>
+            <svg id="layout-preview" class="preview" viewBox="0 0 1280 720" role="img" aria-label="Vista esquemática de la emisión"></svg>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Participantes <span id="participant-count" class="muted"></span></h2>
+          <table class="table">
+            <thead><tr><th>Nombre</th><th>Estado</th><th>Publica</th><th>En escena</th><th></th></tr></thead>
+            <tbody id="participants"></tbody>
+          </table>
+          <p id="no-participants" class="muted">Nadie en la sala todavía.</p>
+        </div>
+
+        <div class="card">
+          <h2>Destinos RTMP(S)</h2>
+          <table class="table">
+            <thead><tr><th>Nombre</th><th>Plataforma</th><th>URL</th><th>Clave</th><th>Activo</th><th></th></tr></thead>
+            <tbody id="destinations"></tbody>
+          </table>
+          <form id="destination-form" class="row wrap">
+            <label>Nombre<input name="name" required maxlength="60" placeholder="YouTube"></label>
+            <label class="grow">URL de ingesta<input name="url" required placeholder="rtmps://a.rtmp.youtube.com/live2"></label>
+            <label>Clave<input name="streamKey" type="password" autocomplete="off"></label>
+            <label>Plataforma<select name="kind">
+              <option value="">Detectar</option><option value="youtube">YouTube</option><option value="twitch">Twitch</option>
+              <option value="facebook">Facebook</option><option value="custom">Otro</option>
+            </select></label>
+            <button type="submit">Añadir</button>
+            <p class="error" role="alert"></p>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Ajustes de la sala</h2>
+          <form id="settings-form" class="row wrap">
+            <label class="grow">Título<input name="title" required maxlength="120"></label>
+            <label>Anfitrión<input name="host" required maxlength="60"></label>
+            <label>Capacidad<input name="capacity" type="number" min="1" max="16"></label>
+            <button type="submit">Guardar</button>
+            <button id="room-close" type="button" class="danger">Cerrar sala</button>
+            <p class="error" role="alert"></p>
+          </form>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
