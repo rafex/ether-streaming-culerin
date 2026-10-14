@@ -92,8 +92,8 @@ vean y se oigan desde el webrelay, y la sala compuesta llegue a sus canales.
 - FFmpeg no admite cambiar entradas en caliente → una ejecución por layout +
   empalme (DEC-0004). Hueco de 2.5–4 s cuando una entrada se detiene.
 - Estado en memoria: un reinicio cierra las salas.
-- El job `e2e` de CI necesita en `main` del webrelay el soporte de
-  `E2E_BRIDGE_URL` (rama `feature/real-bridge-e2e` del webrelay).
+- El job `e2e` de CI clona `main` del webrelay y usa su `E2E_BRIDGE_URL`
+  (ya integrado); un cambio incompatible allí lo pondría en rojo.
 
 ## Plan de ejecución
 
