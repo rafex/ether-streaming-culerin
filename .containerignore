@@ -1,0 +1,5 @@
+**/bin
+**/coverage.out
+site
+.git
+.specnative/.venv

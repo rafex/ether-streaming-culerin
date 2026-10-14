@@ -1,0 +1,82 @@
+# .gitignore — raíz del repositorio (regla 12)
+# Compuesto desde ether-rules: .gitignore.raiz + .secretos + .temporales + .mcp (adaptado).
+# Cada proyecto en source/<rol>/<lenguaje>/<proyecto>/ tiene su propio .gitignore.
+
+# ---------------------------------------------------------------------------
+# Raíz
+# ---------------------------------------------------------------------------
+
+# Generado por MkDocs (documentación)
+/site/
+
+/builddir/
+/build/
+
+# Commitizen virtual environment (no trackeable)
+.githooks/.tools/.commitizen-venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Secretos / credenciales (regla 13): BRIDGE_ADMIN_TOKEN, BRIDGE_INVITE_SECRET
+# y las claves de emisión nunca se versionan.
+# ---------------------------------------------------------------------------
+
+.env
+.env.*
+!.env.example
+!.env.tmpl
+
+.enviroments/.env.*
+!.enviroments/.env.example
+
+.secrets/*.yaml
+.secrets/*.yml
+.secrets/*.json
+!.secrets/*.enc.yaml
+
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.cer
+*.crt
+
+# ---------------------------------------------------------------------------
+# Temporales
+# ---------------------------------------------------------------------------
+
+*.bak
+*.orig
+*.tmp
+*.temp
+*.log
+# Grabaciones locales de la emisión (BRIDGE_RECORD_DIR)
+*.flv
+
+# ---------------------------------------------------------------------------
+# Agentes de IA / MCP: se versionan los comandos y la configuración que
+# instala SpecNative; solo se ignora el estado local.
+# ---------------------------------------------------------------------------
+
+.claude/settings.local.json
+.claude/worktrees/
+.claude/launch.json
+.opencode/
+.cursor/
+.copilot/
+session-ses_*.md
+
+# SpecNative — venv generado
+.specnative/.venv/

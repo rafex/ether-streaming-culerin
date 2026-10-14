@@ -1,0 +1,28 @@
+# Imagen del puente: binario Go estático + FFmpeg (composición y publicación
+# RTMP(S)) + DejaVu (rótulos). Bases fijadas por digest (regla 08).
+
+FROM docker.io/library/golang:1.27.0-trixie@sha256:df98008ecd2b0ecc9f0a94d1b07e3564a9c92b555369b33d9b5f60d0765b2db7 AS build
+ARG VERSION=dev
+WORKDIR /src
+COPY source/backend/go/bridge/go.mod source/backend/go/bridge/go.sum ./
+RUN go mod download
+COPY source/backend/go/bridge/ ./
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false \
+	-ldflags "-s -w -X main.version=${VERSION}" -o /out/bridge ./cmd/bridge
+
+FROM docker.io/library/debian:trixie-20260918-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core ca-certificates curl \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& useradd --system --uid 10001 --home-dir /var/lib/bridge --create-home bridge
+COPY --from=build /out/bridge /usr/local/bin/bridge
+
+# HTTP (señalización, API, consola) y el puerto UDP único de ICE.
+ENV BRIDGE_ADDR=:8090 \
+	BRIDGE_ICE_UDP_PORT=8443 \
+	BRIDGE_FONT_FILE=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+	BRIDGE_WORK_DIR=/var/lib/bridge
+EXPOSE 8090/tcp 8443/udp
+USER 10001
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD curl -fsS http://127.0.0.1:8090/healthz || exit 1
+ENTRYPOINT ["/usr/local/bin/bridge"]
