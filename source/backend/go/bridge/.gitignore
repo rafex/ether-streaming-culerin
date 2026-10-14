@@ -1,0 +1,5 @@
+# Proyecto Go del puente (regla 12)
+/bin/
+coverage.out
+*.test
+*.prof
