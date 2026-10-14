@@ -1,0 +1,66 @@
+site_name: Ether streaming bridge
+site_description: Puente de Ether — videollamada WebRTC (Pion), composición FFmpeg y publicación RTMP(S)
+site_author: rafex
+repo_url: https://github.com/rafex/ether-streaming-culerin
+
+docs_dir: ../../docs
+site_dir: ../../site
+
+theme:
+  name: material
+  language: es
+  features:
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Inicio: index.md
+  - Guía de inicio: getting-started.md
+  - Desplegar el puente: running-bridge.md
+  - Configuración: configuration.md
+  - API del anfitrión: api.md
+  - Arquitectura: architecture.md
+  - Composición y publicación: composition.md
+  - Señalización: signaling.md
+  - Manuales de tareas:
+      - install: man_install.md
+      - build: man_build.md
+      - test: man_test.md
+      - test-unit: man_test-unit.md
+      - test-integration: man_test-integration.md
+      - coverage: man_coverage.md
+      - lint: man_lint.md
+      - format: man_format.md
+      - e2e: man_e2e.md
+      - clean: man_clean.md
+      - docs: man_docs.md
+      - runtime: man_runtime.md
+      - image: man_image.md
+      - ci: man_ci.md
+      - app-image: man_app-image.md
+      - pre-commit: man_pre-commit.md
+      - pre-push: man_pre-push.md
+      - commit-msg: man_commit-msg.md
+      - setup: man_setup.md
+      - verify: man_verify.md
+      - run: man_run.md
+      - up: man_up.md
+      - down: man_down.md
+      - logs: man_logs.md
+      - mediamtx: man_mediamtx.md
+      - demo: man_demo.md
+
+plugins:
+  - search:
+      lang: es
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
