@@ -38,7 +38,7 @@ func TestComposeArgs(t *testing.T) {
 	line := strings.Join(args, " ")
 	for _, want := range []string{
 		"-copyts", "-use_wallclock_as_timestamps 1", "-i /w/input-0.sdp", "-i /w/input-1.sdp",
-		"color=c=0x14161c:s=1280x720:r=30", "realtime",
+		"color=c=0x14161c:s=1280x720:r=30", "format=yuv420p,realtime,setpts=RTCTIME/1000000/TB", "arealtime,asetpts=RTCTIME/1000000/TB[a0]",
 		"drawbox=x=648:y=186:w=620:h=348", "textfile=/w/card-1.txt", // Beto's card
 		"[0:v]fps=30,scale=620:348", "overlay=x=12:y=186", "textfile=/w/label-0.txt", // Ana's tile
 		"setparams=range=tv", "setpts=PTS-STARTPTS[vout]",

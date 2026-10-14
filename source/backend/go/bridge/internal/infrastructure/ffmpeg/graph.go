@@ -40,8 +40,13 @@ var safePath = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
 // (-use_wallclock_as_timestamps) and -copyts keeps those absolute values, so
 // all participants share one timeline (lip sync per participant, no drift
 // between them). The background and the silent audio bed are generated in
-// the graph, aligned to the same clock (RTCSTART) and paced by
-// realtime/arealtime; the final setpts rebases the output to zero.
+// the graph, paced by realtime/arealtime and then stamped with the wall clock
+// at the moment they are emitted (RTCTIME), so the master timeline always
+// tracks real time. (Anchoring them to the process start instead, RTCSTART +
+// n/fps, bakes every stall into a permanent offset: the inputs, stamped with
+// the true clock, end up that far ahead of the master, FFmpeg stops reading
+// them, the UDP socket buffers fill and packets are dropped.) The final setpts
+// rebases the output to zero.
 func composeArgs(p graphParams) ([]string, error) {
 	out := p.plan.Output
 	args := []string{"-hide_banner", "-loglevel", "warning", "-nostdin", "-copyts"}
@@ -68,11 +73,12 @@ func composeArgs(p graphParams) ([]string, error) {
 
 	var g []string
 	fps := strconv.Itoa(out.Framerate)
-	clockAlign := "setpts=PTS+RTCSTART/1000000/TB"
+	// Stamp with the real clock after pacing (see composeArgs).
+	wallclock := "RTCTIME/1000000/TB"
 
 	// Background with the name cards drawn on it.
 	bg := []string{fmt.Sprintf("color=c=%s:s=%dx%d:r=%s", backgroundColor, out.Width, out.Height, fps),
-		"format=yuv420p", clockAlign, "realtime"}
+		"format=yuv420p", "realtime", "setpts=" + wallclock}
 	for i, t := range p.plan.Tiles {
 		_, hasInput := index[t.Source]
 		if t.Kind == domain.TileVideo && hasInput {
@@ -131,7 +137,7 @@ func composeArgs(p graphParams) ([]string, error) {
 
 	// Audio: a silent bed (so the stream always has audio) mixed with every
 	// live microphone / screen audio.
-	g = append(g, "anullsrc=r=48000:cl=stereo,"+strings.Replace(clockAlign, "setpts", "asetpts", 1)+",arealtime[a0]")
+	g = append(g, "anullsrc=r=48000:cl=stereo,arealtime,asetpts="+wallclock+"[a0]")
 	mix := []string{"[a0]"}
 	for k, ref := range p.plan.Audio {
 		i, ok := index[ref]
