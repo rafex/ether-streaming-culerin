@@ -42,14 +42,19 @@ flowchart LR
     PUB --> D2[rtmp://twitch]
 ```
 
-- Cada pista entra como un SDP (`127.0.0.1:<puerto par>`), con
-  `-use_wallclock_as_timestamps 1` y `-copyts`: todas comparten el reloj de
-  pared (sincronía por participante, sin deriva entre ellos). El fondo y el
-  silencio marcan el ritmo (`realtime`/`arealtime`) y se **estampan con el
-  reloj real al emitirse** (`setpts=RTCTIME/1000000/TB`); al final se rebasa a
-  cero. No se anclan a `RTCSTART + n/fps`: así cada parón (arranque, pico de
-  CPU) se convertía en un desfase permanente respecto a las entradas, FFmpeg
-  dejaba de leerlas, los búferes UDP se llenaban y se perdían paquetes.
+- Cada pista entra como un SDP (`127.0.0.1:<puerto par>`) y `-copyts` conserva
+  los tiempos absolutos. El **vídeo** se sella con el reloj de pared
+  (`-use_wallclock_as_timestamps 1`); el fondo y el silencio se alinean a ese
+  reloj (`RTCSTART`) y marcan el ritmo (`realtime`/`arealtime`); al final se
+  rebasa a cero.
+- El **audio** (micrófonos y audio de pantalla) usa el reloj de medios RTP, no
+  el de pared, y se marca por conteo de muestras (`asetpts=N/SR/TB`), sin
+  `aresample async`. Sellar los paquetes de audio con su hora de llegada (que es
+  a ráfagas) hacía que `aresample async=1000` insertara bloques de 0.34 s de
+  silencio (149 en 45 s), descartara ~5 600 muestras y comprimiera la señal un
+  2 % de forma continua; FFmpeg dejaba de leer esas entradas, sus colas UDP se
+  llenaban (~330 KB) y el kernel perdía entre el 5 y el 16 % de los paquetes:
+  audio cortado y vídeo degradado en el restream.
 - Salida: x264 `veryfast`/`zerolatency`, GOP de 2 s, sin B-frames, CBR con el
   bitrate de `BRIDGE_OUTPUT`; AAC 48 kHz estéreo. Propiedades de color fijas
   (bt709, rango limitado) para que todas las ejecuciones produzcan el mismo
