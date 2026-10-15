@@ -28,18 +28,20 @@ const (
 
 // signal upgrades to the signaling v2 WebSocket and runs a Session.
 func (s *Server) signal(w http.ResponseWriter, r *http.Request) {
-	client := clientAddr(r, s.opts.TrustedProxyHops)
-	if !s.signalRate.allow(client) {
-		w.Header().Set("Retry-After", strconv.Itoa(int(s.signalRate.retryAfter(client).Seconds())+1))
-		http.Error(w, "too many connections", http.StatusTooManyRequests)
-		return
+	client := s.client(r)
+	if client != "" {
+		if !s.signalRate.allow(client) {
+			w.Header().Set("Retry-After", strconv.Itoa(int(s.signalRate.retryAfter(client).Seconds())+1))
+			http.Error(w, "too many connections", http.StatusTooManyRequests)
+			return
+		}
+		release, ok := s.signalConns.acquire(client)
+		if !ok {
+			http.Error(w, "too many open connections", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
 	}
-	release, ok := s.signalConns.acquire(client)
-	if !ok {
-		http.Error(w, "too many open connections", http.StatusTooManyRequests)
-		return
-	}
-	defer release()
 	if !offersSubprotocol(r, domain.SignalingSubprotocol) {
 		http.Error(w, "subprotocol "+domain.SignalingSubprotocol+" required", http.StatusBadRequest)
 		return

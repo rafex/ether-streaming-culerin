@@ -223,17 +223,63 @@ func TestClientAddr(t *testing.T) {
 		hops int
 		want string
 	}{
-		"no proxies: the TCP peer":               {req("203.0.113.5:4000", "198.51.100.1"), 0, "203.0.113.5"},
-		"one proxy: what it appended":            {req("10.0.0.2:80", "198.51.100.1"), 1, "198.51.100.1"},
-		"a client-forged prefix is ignored":      {req("10.0.0.2:80", "6.6.6.6, 198.51.100.1"), 1, "198.51.100.1"},
-		"two proxies":                            {req("10.0.0.3:80", "198.51.100.1, 10.0.0.2"), 2, "198.51.100.1"},
-		"header shorter than the hops: the peer": {req("10.0.0.2:80", "198.51.100.1"), 2, "10.0.0.2"},
-		"no header: the peer":                    {req("10.0.0.2:80", ""), 1, "10.0.0.2"},
-		"garbage in the header: the peer":        {req("10.0.0.2:80", "not-an-ip"), 1, "10.0.0.2"},
-		"IPv6 peer":                              {req("[2001:db8::1]:443", ""), 0, "2001:db8::1"},
+		"no proxies: the TCP peer":                {req("203.0.113.5:4000", "198.51.100.1"), 0, "203.0.113.5"},
+		"one proxy: what it appended":             {req("10.0.0.2:80", "198.51.100.1"), 1, "198.51.100.1"},
+		"a client-forged prefix is ignored":       {req("10.0.0.2:80", "6.6.6.6, 198.51.100.1"), 1, "198.51.100.1"},
+		"two proxies":                             {req("10.0.0.3:80", "198.51.100.1, 10.0.0.2"), 2, "198.51.100.1"},
+		"header shorter than the hops: no client": {req("10.0.0.2:80", "198.51.100.1"), 2, ""},
+		"no header behind a proxy: no client":     {req("10.0.0.2:80", ""), 1, ""},
+		"garbage in the header: no client":        {req("10.0.0.2:80", "not-an-ip"), 1, ""},
+		"IPv6 peer":                               {req("[2001:db8::1]:443", ""), 0, "2001:db8::1"},
 	} {
 		if got := clientAddr(tc.r, tc.hops); got != tc.want {
 			t.Errorf("%s: got %q, want %q", name, got, tc.want)
 		}
+	}
+}
+
+// Behind a proxy whose X-Forwarded-For is missing, the only address is the
+// proxy's, shared by everyone: limiting on it would let one client lock out all
+// the others. The limits must step aside instead.
+func TestLimitsStepAsideWhenTheClientIsUnknown(t *testing.T) {
+	srv := tunedServer(t, func(s *Server) { s.opts.TrustedProxyHops = 1 })
+	for i := 0; i < 3*authFailureBurst; i++ {
+		if code, _ := call(t, srv, "GET", "/api/v1/rooms", "", "wrong"); code != 401 {
+			t.Fatalf("attempt %d got %d, want 401 (not 429)", i, code)
+		}
+	}
+	if code, _ := call(t, srv, "GET", "/api/v1/rooms", "", adminToken); code != 200 {
+		t.Fatalf("the admin was locked out by someone else's failures: %d", code)
+	}
+	for i := 0; i < 3*signalConnBurst; i++ {
+		c, resp, err := dial(t, srv, "https://relay.example", "ether-webrelay.signaling.v2")
+		if err != nil {
+			t.Fatalf("socket %d refused (%v)", i, resp)
+		}
+		defer c.CloseNow()
+	}
+}
+
+func TestLimitsKeyOnTheForwardedClient(t *testing.T) {
+	srv := tunedServer(t, func(s *Server) { s.opts.TrustedProxyHops = 1 })
+	send := func(client, token string) int {
+		req, _ := http.NewRequest("GET", srv.URL+"/api/v1/rooms", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Forwarded-For", "6.6.6.6, "+client) // the left part is client-forged
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for i := 0; i < authFailureBurst; i++ {
+		send("203.0.113.9", "wrong")
+	}
+	if code := send("203.0.113.9", adminToken); code != 429 {
+		t.Fatalf("the abusive client was not cut off: %d", code)
+	}
+	if code := send("198.51.100.4", adminToken); code != 200 {
+		t.Fatalf("another client was affected: %d", code)
 	}
 }

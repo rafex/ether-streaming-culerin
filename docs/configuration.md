@@ -54,9 +54,15 @@ Lo que el puente hace por sí mismo (además de las políticas de red del despli
 | Servidor HTTP | `ReadHeaderTimeout` 10 s, `IdleTimeout` 120 s, cabeceras ≤ 16 KiB. Sin `ReadTimeout`/`WriteTimeout` a propósito: cortarían los WebSockets |
 | Cabeceras | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener/Resource-Policy: same-origin` en todo; `Strict-Transport-Security` cuando llega `X-Forwarded-Proto: https`; la consola añade CSP y `Permissions-Policy` sin cámara ni micrófono |
 
-**Detrás de proxies** el puente solo ve la IP del último salto. Con
-`BRIDGE_TRUSTED_PROXY_HOPS=N` usa la entrada N-ésima desde la derecha de
-`X-Forwarded-For` (lo que añadió el proxy más externo de confianza; lo que el
-cliente escriba a la izquierda se ignora). Con un valor equivocado los límites
-se imputan a la dirección del proxy y afectan a todos a la vez: compruébalo con
-una petición de prueba y el log (`client=`) antes de fiarte de él.
+**Detrás de proxies (obligatorio fijarlo).** El puente solo ve la IP del
+último salto. Con el valor por defecto (`BRIDGE_TRUSTED_PROXY_HOPS=0`) todos los
+clientes que llegan por un proxy comparten una misma dirección y, por tanto, un
+mismo cubo de límites: uno solo que abuse bloquearía a los demás. En un
+despliegue tras un ingress pon `N` = número de proxies que añaden al cliente a
+`X-Forwarded-For`; el puente usa la entrada N-ésima desde la derecha (lo que
+añadió el proxy más externo de confianza; lo que el cliente escriba a la
+izquierda se ignora). Si con `N > 0` no llega una entrada utilizable, **los
+límites no se aplican** (en vez de imputarse al proxy) y se avisa en el log como
+máximo una vez por minuto (`no client address in X-Forwarded-For`): ese aviso
+indica un `N` equivocado. Comprueba el valor con un intento de token erróneo
+desde tu IP y mira `client=` en el log antes de fiarte de él.

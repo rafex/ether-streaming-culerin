@@ -165,14 +165,18 @@ func (c *connCounter) acquire(key string) (release func(), ok bool) {
 // clientAddr is the address limits are keyed on. Behind `hops` trusted
 // reverse proxies the client is the entry `hops` places from the right of
 // X-Forwarded-For (what the outermost proxy appended); anything further left
-// is client-controlled and ignored. With hops == 0, or when the header is
-// shorter than expected, the TCP peer is used.
+// is client-controlled and ignored. With hops == 0 the TCP peer is used.
+//
+// With hops > 0 and no usable entry it returns "": the only address left is a
+// proxy's, shared by every client, and charging limits to it would let one
+// misbehaving client lock out everyone. Callers skip their limits for "" (and
+// the warning in the log points at the misconfiguration).
 func clientAddr(r *http.Request, hops int) string {
-	peer, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		peer = r.RemoteAddr
-	}
 	if hops <= 0 {
+		peer, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			peer = r.RemoteAddr
+		}
 		return peer
 	}
 	var chain []string
@@ -184,10 +188,10 @@ func clientAddr(r *http.Request, hops int) string {
 		}
 	}
 	if len(chain) < hops {
-		return peer
+		return ""
 	}
 	if ip := net.ParseIP(chain[len(chain)-hops]); ip != nil {
 		return ip.String()
 	}
-	return peer
+	return ""
 }

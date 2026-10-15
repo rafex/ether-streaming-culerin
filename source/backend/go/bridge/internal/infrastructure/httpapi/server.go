@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rafex/ether-streaming-culerin/source/backend/go/bridge/internal/application"
@@ -46,6 +47,9 @@ type Server struct {
 	signalRate   *keyedLimiter // new /signal sockets per client
 	signalConns  *connCounter  // open /signal sockets per client
 	now          func() time.Time
+
+	warnMu        sync.Mutex
+	lastProxyWarn time.Time
 
 	// Overridable by tests; the constants are the production values.
 	admitDeadline time.Duration
@@ -97,6 +101,26 @@ func (s *Server) routes() http.Handler {
 	return securityHeaders(logRequests(mux, s.log))
 }
 
+// client resolves the address limits are charged to and, once a minute at
+// most, warns when BRIDGE_TRUSTED_PROXY_HOPS does not match what arrives.
+func (s *Server) client(r *http.Request) string {
+	client := clientAddr(r, s.opts.TrustedProxyHops)
+	if client == "" {
+		now := s.clock()
+		s.warnMu.Lock()
+		due := now.Sub(s.lastProxyWarn) >= time.Minute
+		if due {
+			s.lastProxyWarn = now
+		}
+		s.warnMu.Unlock()
+		if due {
+			s.log.Warn("no client address in X-Forwarded-For; rate limits are not applied (check BRIDGE_TRUSTED_PROXY_HOPS)",
+				"hops", s.opts.TrustedProxyHops, "peer", r.RemoteAddr, "xff", r.Header.Get("X-Forwarded-For"))
+		}
+	}
+	return client
+}
+
 // clock lets tests move time; it is time.Now otherwise.
 func (s *Server) clock() time.Time { return s.now() }
 
@@ -105,17 +129,19 @@ func (s *Server) authorize(next http.Handler) http.Handler {
 	expected := []byte("Bearer " + s.opts.AdminToken)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		client := clientAddr(r, s.opts.TrustedProxyHops)
+		client := s.client(r)
 		// A client that keeps sending wrong tokens is cut off, even if its next
 		// guess would be right: that is what makes guessing pointless.
-		if s.authFailures.exhausted(client) {
+		if client != "" && s.authFailures.exhausted(client) {
 			w.Header().Set("Retry-After", strconv.Itoa(int(s.authFailures.retryAfter(client).Seconds())+1))
 			writeJSON(w, http.StatusTooManyRequests, apiError{Code: "rate-limited", Message: "too many failed attempts; try again later"})
 			return
 		}
 		got := []byte(r.Header.Get("Authorization"))
 		if subtle.ConstantTimeCompare(got, expected) != 1 {
-			s.authFailures.allow(client)
+			if client != "" {
+				s.authFailures.allow(client)
+			}
 			s.log.Warn("admin API: invalid token", "client", client, "path", r.URL.Path)
 			writeJSON(w, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "missing or invalid admin token"})
 			return
