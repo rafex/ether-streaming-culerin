@@ -5,8 +5,11 @@ package application
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"slices"
@@ -60,6 +63,19 @@ type member struct {
 	conn  ports.Connection // nil while disconnected (grace period)
 	peer  ports.MediaPeer
 	grace ports.Timer
+	// resumeToken is the secret needed to take this participant over after a
+	// dropped socket. Participant ids are sequential and public, so the id
+	// alone must never be enough.
+	resumeToken string
+}
+
+// newResumeToken returns 128 random bits, URL-safe.
+func newResumeToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("no randomness for the resume token: %v", err)) // crypto/rand never fails on supported platforms
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // NewHub wires the hub; it registers itself as the SFU's listener.
@@ -148,14 +164,22 @@ func (h *Hub) Join(id domain.RoomID, conn ports.Connection, msg domain.JoinMessa
 		return JoinResult{}, domain.Fatalf(domain.CodeRoomNotFound, "room %s does not exist", id)
 	}
 	if msg.Resume != "" {
-		if m, ok := entry.members[msg.Resume]; ok && m.peer != nil {
+		m, ok := entry.members[msg.Resume]
+		if ok && subtle.ConstantTimeCompare([]byte(m.resumeToken), []byte(msg.ResumeToken)) != 1 {
+			// Someone who only knows the (public) id: never take the session over.
+			// Treat it as a brand-new guest instead of an error, so clients that
+			// predate the token merely lose their old seat.
+			h.log.Warn("resume refused: bad token", "room", id, "participant", msg.Resume)
+			ok = false
+		}
+		if ok && m.peer != nil {
 			if m.grace != nil {
 				m.grace.Stop()
 				m.grace = nil
 			}
 			previous := m.conn
 			m.conn = conn
-			conn.Send(domain.NewWelcome(msg.Resume, true, h.cfg.Profile, h.cfg.IceServers, entry.room.ParticipantInfos()))
+			conn.Send(domain.NewWelcome(msg.Resume, true, m.resumeToken, h.cfg.Profile, h.cfg.IceServers, entry.room.ParticipantInfos()))
 			peer := m.peer
 			h.mu.Unlock()
 			if previous != nil && previous != conn {
@@ -171,9 +195,9 @@ func (h *Hub) Join(id domain.RoomID, conn ports.Connection, msg domain.JoinMessa
 		h.mu.Unlock()
 		return JoinResult{}, err
 	}
-	m := &member{conn: conn}
+	m := &member{conn: conn, resumeToken: newResumeToken()}
 	entry.members[p.ID] = m
-	conn.Send(domain.NewWelcome(p.ID, false, h.cfg.Profile, h.cfg.IceServers, entry.room.ParticipantInfos()))
+	conn.Send(domain.NewWelcome(p.ID, false, m.resumeToken, h.cfg.Profile, h.cfg.IceServers, entry.room.ParticipantInfos()))
 	h.broadcastLocked(entry, p.ID, domain.NewParticipantJoined(p.Info()))
 	h.mu.Unlock()
 	h.log.Info("participant joined", "room", id, "participant", p.ID, "name", p.Name)

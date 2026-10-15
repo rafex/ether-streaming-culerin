@@ -94,6 +94,9 @@ type (
 		Audio  bool
 		Video  bool
 		Resume ParticipantID
+		// ResumeToken is the secret the welcome handed out with the participant
+		// id; without it a resume is ignored (ids are sequential and public).
+		ResumeToken string
 	}
 	PublishOfferMessage struct {
 		SDP     string
@@ -128,6 +131,7 @@ type rawClientMessage struct {
 	Title     string                       `json:"title"`
 	Media     *struct{ Audio, Video bool } `json:"media"`
 	Resume    string                       `json:"resume"`
+	ResumeTok string                       `json:"resumeToken"`
 	SDP       string                       `json:"sdp"`
 	Sources   map[string]string            `json:"sources"`
 	PC        string                       `json:"pc"`
@@ -162,7 +166,10 @@ func ParseClientMessage(data []byte) (ClientMessage, error) {
 		if utf8.RuneCountInString(title) > MaxTitleLength {
 			return nil, fmt.Errorf("join.title must have at most %d characters", MaxTitleLength)
 		}
-		msg := JoinMessage{Name: name, Title: title, Resume: ParticipantID(raw.Resume)}
+		if len(raw.ResumeTok) > 256 {
+			return nil, fmt.Errorf("join.resumeToken too long")
+		}
+		msg := JoinMessage{Name: name, Title: title, Resume: ParticipantID(raw.Resume), ResumeToken: raw.ResumeTok}
 		if raw.Media != nil {
 			msg.Audio, msg.Video = raw.Media.Audio, raw.Media.Video
 		}
@@ -253,9 +260,12 @@ type RoomInfoMessage struct {
 }
 
 type WelcomeMessage struct {
-	Type         string            `json:"type"`
-	Self         ParticipantID     `json:"self"`
-	Resumed      bool              `json:"resumed"`
+	Type    string        `json:"type"`
+	Self    ParticipantID `json:"self"`
+	Resumed bool          `json:"resumed"`
+	// ResumeToken proves ownership of Self on a later `join {resume}`; it is
+	// only ever sent to the connection that owns the participant.
+	ResumeToken  string            `json:"resumeToken"`
 	Profile      QualityProfile    `json:"profile"`
 	IceServers   []IceServer       `json:"iceServers"`
 	Participants []ParticipantInfo `json:"participants"`
@@ -324,14 +334,14 @@ func NewRoomInfo(id RoomID, title string, host HostInfo, channels []string) Room
 	return RoomInfoMessage{Type: "room.info", Room: id, Title: title, Host: host, Channels: channels}
 }
 
-func NewWelcome(self ParticipantID, resumed bool, profile QualityProfile, ice []IceServer, participants []ParticipantInfo) WelcomeMessage {
+func NewWelcome(self ParticipantID, resumed bool, resumeToken string, profile QualityProfile, ice []IceServer, participants []ParticipantInfo) WelcomeMessage {
 	if ice == nil {
 		ice = []IceServer{}
 	}
 	if participants == nil {
 		participants = []ParticipantInfo{}
 	}
-	return WelcomeMessage{Type: "welcome", Self: self, Resumed: resumed, Profile: profile, IceServers: ice, Participants: participants}
+	return WelcomeMessage{Type: "welcome", Self: self, Resumed: resumed, ResumeToken: resumeToken, Profile: profile, IceServers: ice, Participants: participants}
 }
 
 func NewPublishAnswer(sdp string) SDPMessage  { return SDPMessage{Type: "publish.answer", SDP: sdp} }

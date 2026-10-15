@@ -81,7 +81,7 @@ func TestParseRejectsInvalidMessages(t *testing.T) {
 func TestServerMessagesCarryTheirType(t *testing.T) {
 	msgs := []ServerMessage{
 		NewRoomInfo("demo", "T", HostInfo{Name: "H"}, nil),
-		NewWelcome("p-1", false, DefaultProfile, nil, nil),
+		NewWelcome("p-1", false, "rt", DefaultProfile, nil, nil),
 		NewPublishAnswer("v=0"), NewSubscribeOffer("v=0"),
 		NewIce(RolePublish, IceCandidate{Candidate: "c"}),
 		NewTracks(map[string]TrackInfo{"0": {Participant: "p-1", Source: SourceCamera}}),
@@ -102,7 +102,7 @@ func TestServerMessagesCarryTheirType(t *testing.T) {
 		}
 	}
 	// Empty collections must serialise as arrays: the webrelay rejects null.
-	welcome := mustJSON(t, NewWelcome("p-1", false, DefaultProfile, nil, nil))
+	welcome := mustJSON(t, NewWelcome("p-1", false, "rt", DefaultProfile, nil, nil))
 	if !strings.Contains(welcome, `"iceServers":[]`) || !strings.Contains(welcome, `"participants":[]`) {
 		t.Fatalf("welcome = %s", welcome)
 	}

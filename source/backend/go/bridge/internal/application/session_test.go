@@ -197,7 +197,11 @@ func TestResumeKeepsTheParticipant(t *testing.T) {
 	f := newFixture(t, false)
 	f.createRoom(t, "demo")
 	_, ana := f.guest(t, "demo", "Ana")
-	beto, _ := f.guest(t, "demo", "Beto")
+	beto, betoConn := f.guest(t, "demo", "Beto")
+	token := betoConn.last(t, "welcome").(domain.WelcomeMessage).ResumeToken
+	if token == "" {
+		t.Fatal("welcome must hand out a resume token")
+	}
 
 	beto.Closed() // socket dropped
 	view, _ := f.hub.Room("demo")
@@ -209,9 +213,9 @@ func TestResumeKeepsTheParticipant(t *testing.T) {
 	conn := &fakeConn{}
 	again := NewSession(f.hub, conn, quiet)
 	again.Handle([]byte(`{"type":"room.peek","room":"demo","token":"` + f.token("demo") + `"}`))
-	again.Handle([]byte(`{"type":"join","name":"Beto","resume":"p-2"}`))
+	again.Handle([]byte(`{"type":"join","name":"Beto","resume":"p-2","resumeToken":"` + token + `"}`))
 	w := conn.last(t, "welcome").(domain.WelcomeMessage)
-	if w.Self != "p-2" || !w.Resumed || f.sfu.peer("p-2").resumed != 1 {
+	if w.Self != "p-2" || !w.Resumed || w.ResumeToken != token || f.sfu.peer("p-2").resumed != 1 {
 		t.Fatalf("resume failed: %+v", w)
 	}
 	f.clock.Advance(time.Minute) // the old grace timer must have been cancelled
@@ -228,6 +232,41 @@ func TestResumeKeepsTheParticipant(t *testing.T) {
 	f.clock.Advance(21 * time.Second)
 	if left := ana.last(t, "participant.left").(domain.ParticipantLeftMessage); left.ID != "p-2" {
 		t.Fatalf("left = %+v", left)
+	}
+}
+
+// Participant ids are sequential and listed to everyone in the room, so
+// knowing one must not be enough to take that participant's session over.
+func TestResumeNeedsTheSecretToken(t *testing.T) {
+	f := newFixture(t, false)
+	f.createRoom(t, "demo")
+	_, _ = f.guest(t, "demo", "Ana")
+	_, betoConn := f.guest(t, "demo", "Beto")
+	betoToken := betoConn.last(t, "welcome").(domain.WelcomeMessage).ResumeToken
+
+	for name, body := range map[string]string{
+		"no token":    `{"type":"join","name":"Mallory","resume":"p-2"}`,
+		"wrong token": `{"type":"join","name":"Mallory","resume":"p-2","resumeToken":"AAAAAAAAAAAAAAAAAAAAAA"}`,
+		"other's own": `{"type":"join","name":"Mallory","resume":"p-2","resumeToken":"` + betoToken[:len(betoToken)-1] + `x"}`,
+	} {
+		conn := &fakeConn{}
+		attacker := NewSession(f.hub, conn, quiet)
+		attacker.Handle([]byte(`{"type":"room.peek","room":"demo","token":"` + f.token("demo") + `"}`))
+		attacker.Handle([]byte(body))
+		w := conn.last(t, "welcome").(domain.WelcomeMessage)
+		if w.Resumed || w.Self == "p-2" {
+			t.Fatalf("%s: session hijacked: %+v", name, w)
+		}
+		if w.ResumeToken == "" || w.ResumeToken == betoToken {
+			t.Fatalf("%s: the new guest needs its own token, got %q", name, w.ResumeToken)
+		}
+		if betoConn.closeCode != 0 {
+			t.Fatalf("%s: the victim's socket was closed (%d)", name, betoConn.closeCode)
+		}
+		if f.sfu.peer("p-2").resumed != 0 {
+			t.Fatalf("%s: the victim's media peer was resumed", name)
+		}
+		attacker.Handle([]byte(`{"type":"leave"}`)) // free the seat for the next case
 	}
 }
 
