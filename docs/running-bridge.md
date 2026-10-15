@@ -5,6 +5,19 @@ tags: [deployment, container]
 
 # Desplegar el puente
 
+## En k3s (Server 2) — `streaming.rafex.app`
+
+El despliegue en el cluster de pruebas lo gestiona
+[`rafex/ether-streaming-gitops`](https://github.com/rafex/ether-streaming-gitops) con Flux: charts propios
+para el puente y el frontend, imágenes `ghcr.io/rafex/ether-streaming-culerin` (`build-N`, publicadas por
+`.github/workflows/publish-image.yml` y desplegadas por Flux image automation) y secretos con SOPS. Los medios
+WebRTC van por **UDP 30443** (NodePort) y los certificados/DNS los gestiona `k3s-haproxy-setup`.
+La consola y la API están en `https://console.streaming.rafex.app/console/` (token de administración) y los
+invitados entran por `https://streaming.rafex.app/join/<sala>?t=<token>`.
+
+Recuerda que el puente guarda el estado en memoria: cada despliegue (también un bump automático de imagen)
+cierra las salas y borra los destinos; vuelve a crearlos desde la consola.
+
 ## Contenedor
 
 ```bash

@@ -23,4 +23,4 @@ la relacion antes de continuar.
 
 | Spec | Estado | Tareas | Decisiones | Archivos principales | Validacion | Observaciones |
 | --- | --- | --- | --- | --- | --- | --- |
-| SPEC-0001 bridge-mvp | active | TASK-0001…TASK-0008 (done), TASK-0009 (todo) | DEC-0001…DEC-0006, ARCH-0001, ARCH-0002, CONV-0001, CONV-0002 | `source/backend/go/bridge/*`, `containers/*`, `helpers/*` | `make ci` (cobertura 88.8 %), `make e2e` (webrelay 5/5), MediaMTX nativo y en contenedor, CI de GitHub en verde (`build-test`, `e2e`) | Cierre pendiente solo de TASK-0009 / CA6: prueba manual con un destino RTMPS real (YouTube/Twitch). El mismo criterio cierra TASK-0110 del webrelay. |
+| SPEC-0001 bridge-mvp | done | TASK-0001…TASK-0009 (done) | DEC-0001…DEC-0006, ARCH-0001, ARCH-0002, CONV-0001, CONV-0002 | `source/backend/go/bridge/*`, `containers/*`, `helpers/*` | `make ci` (cobertura 88.8 %), `make e2e` (webrelay 5/5), MediaMTX, emisión a YouTube confirmada, CI de GitHub en verde, despliegue en k3s Server 2 verificado | Cerrada el 2026-10-14. Despliegue: `rafex/ether-streaming-gitops` (streaming.rafex.app). |
