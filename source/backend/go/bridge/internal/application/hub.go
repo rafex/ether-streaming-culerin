@@ -32,7 +32,20 @@ type Config struct {
 	// ResumeGrace is how long a participant whose socket dropped keeps its
 	// place (and media) waiting for `join {resume}`.
 	ResumeGrace time.Duration
+	// MaxRooms and MaxDestinations bound what the admin API (or, in development
+	// mode, on-demand rooms) can allocate in memory; zero picks the default.
+	MaxRooms        int
+	MaxDestinations int
+	// AllowPrivateDestinations lets destinations point at loopback/private
+	// hosts (local RTMP sinks in development); otherwise they must be public.
+	AllowPrivateDestinations bool
 }
+
+// Defaults for Config.MaxRooms and Config.MaxDestinations.
+const (
+	DefaultMaxRooms        = 50
+	DefaultMaxDestinations = 8
+)
 
 // DevChannels are shown for on-demand development rooms without destinations.
 var DevChannels = []string{string(domain.KindYouTube), string(domain.KindTwitch)}
@@ -67,6 +80,12 @@ func NewHub(cfg Config, clock ports.Clock, signer *domain.InviteSigner, sfu port
 	if cfg.InviteTTL == 0 {
 		cfg.InviteTTL = 24 * time.Hour
 	}
+	if cfg.MaxRooms <= 0 {
+		cfg.MaxRooms = DefaultMaxRooms
+	}
+	if cfg.MaxDestinations <= 0 {
+		cfg.MaxDestinations = DefaultMaxDestinations
+	}
 	if cfg.ResumeGrace == 0 {
 		cfg.ResumeGrace = 20 * time.Second
 	}
@@ -97,6 +116,9 @@ func (h *Hub) Peek(id domain.RoomID, token string) (domain.RoomInfoMessage, erro
 			return domain.RoomInfoMessage{}, domain.Fatalf(domain.CodeRoomNotFound, "room %s does not exist", id)
 		}
 		if entry == nil {
+			if len(h.rooms) >= h.cfg.MaxRooms {
+				return domain.RoomInfoMessage{}, domain.Fatalf(domain.CodeConflict, "too many rooms")
+			}
 			room, err := domain.NewRoom(id, domain.RoomSettings{
 				Title: "Sala de pruebas · " + string(id),
 				Host:  domain.HostInfo{Name: "Anfitrión de pruebas"},
@@ -286,6 +308,9 @@ func (h *Hub) CreateRoom(id domain.RoomID, settings domain.RoomSettings) (RoomVi
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if _, exists := h.rooms[id]; !exists && len(h.rooms) >= h.cfg.MaxRooms {
+		return RoomView{}, domain.Errorf(domain.CodeConflict, "too many rooms (limit %d); close one first", h.cfg.MaxRooms)
+	}
 	if existing, ok := h.rooms[id]; ok && !existing.room.Ephemeral {
 		return RoomView{}, domain.Errorf(domain.CodeConflict, "room %s already exists", id)
 	} else if ok {
@@ -432,11 +457,23 @@ func (h *Hub) Invite(id domain.RoomID, ttl time.Duration) (InviteView, error) {
 
 // AddDestination stores an RTMP(S) output; the key is returned masked.
 func (h *Hub) AddDestination(id domain.RoomID, d domain.Destination) (DestinationView, error) {
+	if !h.cfg.AllowPrivateDestinations {
+		if err := d.Validate(); err != nil {
+			return DestinationView{}, err
+		}
+		if err := domain.CheckPublicHost(d.Hostname()); err != nil {
+			return DestinationView{}, err
+		}
+	}
 	h.mu.Lock()
 	entry, err := h.entryLocked(id)
 	if err != nil {
 		h.mu.Unlock()
 		return DestinationView{}, err
+	}
+	if len(entry.room.Destinations) >= h.cfg.MaxDestinations {
+		h.mu.Unlock()
+		return DestinationView{}, domain.Errorf(domain.CodeConflict, "a room can have at most %d destinations", h.cfg.MaxDestinations)
 	}
 	added, err := entry.room.AddDestination(d)
 	h.mu.Unlock()

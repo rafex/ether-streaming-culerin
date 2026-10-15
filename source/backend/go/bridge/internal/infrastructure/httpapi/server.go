@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,10 @@ type Options struct {
 	DevMode        bool
 	WebRelayURL    string
 	Output         domain.OutputSettings
+	// TrustedProxyHops is how many reverse proxies in front of the bridge
+	// append the client to X-Forwarded-For (0: use the TCP peer). It only
+	// decides which address the rate limits are charged to.
+	TrustedProxyHops int
 }
 
 // Server wires the handlers.
@@ -36,11 +41,32 @@ type Server struct {
 	broadcaster *application.Broadcaster
 	opts        Options
 	log         *slog.Logger
+
+	authFailures *keyedLimiter // failed admin-token attempts per client
+	signalRate   *keyedLimiter // new /signal sockets per client
+	signalConns  *connCounter  // open /signal sockets per client
+	now          func() time.Time
+
+	// Overridable by tests; the constants are the production values.
+	admitDeadline time.Duration
+	messageBurst  int
 }
 
 // New builds the HTTP handler.
 func New(hub *application.Hub, broadcaster *application.Broadcaster, opts Options, log *slog.Logger) http.Handler {
-	s := &Server{hub: hub, broadcaster: broadcaster, opts: opts, log: log}
+	return buildServer(hub, broadcaster, opts, log).routes()
+}
+
+func buildServer(hub *application.Hub, broadcaster *application.Broadcaster, opts Options, log *slog.Logger) *Server {
+	s := &Server{hub: hub, broadcaster: broadcaster, opts: opts, log: log, now: time.Now,
+		admitDeadline: admitDeadline, messageBurst: messageBurst}
+	s.authFailures = newKeyedLimiter(authFailureBurst, 1/authFailureEvery.Seconds(), s.clock)
+	s.signalRate = newKeyedLimiter(signalConnBurst, signalConnPerSec, s.clock)
+	s.signalConns = newConnCounter(maxSignalConnsPerClient)
+	return s
+}
+
+func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -68,16 +94,29 @@ func New(hub *application.Hub, broadcaster *application.Broadcaster, opts Option
 	console, _ := fs.Sub(consoleFiles, "console")
 	mux.Handle("GET /console/", consoleHeaders(http.StripPrefix("/console/", http.FileServerFS(console))))
 	mux.Handle("GET /{$}", http.RedirectHandler("/console/", http.StatusFound))
-	return logRequests(mux, log)
+	return securityHeaders(logRequests(mux, s.log))
 }
+
+// clock lets tests move time; it is time.Now otherwise.
+func (s *Server) clock() time.Time { return s.now() }
 
 // authorize checks the host's bearer token in constant time.
 func (s *Server) authorize(next http.Handler) http.Handler {
 	expected := []byte("Bearer " + s.opts.AdminToken)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		client := clientAddr(r, s.opts.TrustedProxyHops)
+		// A client that keeps sending wrong tokens is cut off, even if its next
+		// guess would be right: that is what makes guessing pointless.
+		if s.authFailures.exhausted(client) {
+			w.Header().Set("Retry-After", strconv.Itoa(int(s.authFailures.retryAfter(client).Seconds())+1))
+			writeJSON(w, http.StatusTooManyRequests, apiError{Code: "rate-limited", Message: "too many failed attempts; try again later"})
+			return
+		}
 		got := []byte(r.Header.Get("Authorization"))
 		if subtle.ConstantTimeCompare(got, expected) != 1 {
+			s.authFailures.allow(client)
+			s.log.Warn("admin API: invalid token", "client", client, "path", r.URL.Path)
 			writeJSON(w, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "missing or invalid admin token"})
 			return
 		}
@@ -90,8 +129,7 @@ func consoleHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https: data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=()")
 		h.Set("Cache-Control", "no-cache")
 		next.ServeHTTP(w, r)
 	})
@@ -161,4 +199,22 @@ func readJSON(r *http.Request, into any) error {
 		return domain.Errorf(domain.CodeBadRequest, "invalid JSON body: %v", err)
 	}
 	return nil
+}
+
+// securityHeaders sets the headers every response should carry. HSTS is only
+// meaningful over HTTPS, which the reverse proxy terminates: the bridge sees
+// plain HTTP and learns about it from X-Forwarded-Proto.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
 }

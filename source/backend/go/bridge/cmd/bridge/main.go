@@ -72,6 +72,7 @@ func run() error {
 	hub := application.NewHub(application.Config{
 		DevMode: cfg.DevMode, Profile: cfg.Profile, IceServers: cfg.IceServers,
 		InviteTTL: cfg.InviteTTL, WebRelayURL: cfg.WebRelayURL,
+		MaxRooms: cfg.MaxRooms, MaxDestinations: cfg.MaxDestinations, AllowPrivateDestinations: cfg.AllowPrivateDestinations,
 	}, sys, signer, media, log)
 	broadcaster := application.NewBroadcaster(hub, compositor, media, sys, application.BroadcastConfig{Output: cfg.Output}, log)
 	defer broadcaster.StopAll()
@@ -80,9 +81,13 @@ func run() error {
 		Addr: cfg.Addr,
 		Handler: httpapi.New(hub, broadcaster, httpapi.Options{
 			AdminToken: cfg.AdminToken, AllowedOrigins: cfg.AllowedOrigins, DevMode: cfg.DevMode,
-			WebRelayURL: cfg.WebRelayURL, Output: cfg.Output,
+			WebRelayURL: cfg.WebRelayURL, Output: cfg.Output, TrustedProxyHops: cfg.TrustedProxyHops,
 		}, log),
 		ReadHeaderTimeout: 10 * time.Second,
+		// No Read/WriteTimeout: they would cut the signaling WebSockets. Idle
+		// keep-alive connections and oversized headers are bounded instead.
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 16 << 10,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
