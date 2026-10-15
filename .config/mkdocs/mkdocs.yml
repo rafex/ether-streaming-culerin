@@ -31,6 +31,7 @@ nav:
       - coverage: man_coverage.md
       - lint: man_lint.md
       - format: man_format.md
+      - vuln: man_vuln.md
       - e2e: man_e2e.md
       - clean: man_clean.md
       - docs: man_docs.md
