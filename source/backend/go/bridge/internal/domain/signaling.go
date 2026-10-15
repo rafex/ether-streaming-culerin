@@ -166,6 +166,12 @@ func ParseClientMessage(data []byte) (ClientMessage, error) {
 		if utf8.RuneCountInString(title) > MaxTitleLength {
 			return nil, fmt.Errorf("join.title must have at most %d characters", MaxTitleLength)
 		}
+		if err := checkLabel("join.name", name); err != nil {
+			return nil, err
+		}
+		if err := checkLabel("join.title", title); err != nil {
+			return nil, err
+		}
 		if len(raw.ResumeTok) > 256 {
 			return nil, fmt.Errorf("join.resumeToken too long")
 		}

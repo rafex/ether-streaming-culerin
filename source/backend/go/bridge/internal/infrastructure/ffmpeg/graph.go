@@ -189,8 +189,13 @@ func publishArgs(outputs []ports.Output, record string) ([]string, error) {
 		"-f", "tee", strings.Join(targets, "|")}, nil
 }
 
+// drawtext prints the contents of textfile as they are. expansion=none matters:
+// with the default (normal) FFmpeg interprets `%` in the text, so a guest named
+// "100% real" or "%{n}" makes the filter fail to start and the whole composition
+// never goes on air. `%%` is NOT a valid escape in drawtext, so escaping is not
+// an option; turning expansion off is.
 func drawtext(font, textfile string, size int, x, y string, boxed bool) string {
-	s := fmt.Sprintf("drawtext=fontfile=%s:textfile=%s:fontsize=%d:fontcolor=white:x=%s:y=%s", font, textfile, size, x, y)
+	s := fmt.Sprintf("drawtext=fontfile=%s:textfile=%s:expansion=none:fontsize=%d:fontcolor=white:x=%s:y=%s", font, textfile, size, x, y)
 	if boxed {
 		s += ":box=1:boxcolor=0x000000@0.55:boxborderw=8"
 	}
