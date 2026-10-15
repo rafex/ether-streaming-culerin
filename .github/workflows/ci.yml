@@ -8,6 +8,8 @@ on:
   push:
     branches: [main, develop]
   pull_request:
+  schedule:
+    - cron: "17 6 * * 1" # los avisos nuevos llegan aunque no haya cambios
 
 permissions:
   contents: read
@@ -28,6 +30,23 @@ jobs:
 
       - name: Build bridge image
         run: make app-image
+
+  # Vulnerabilidades conocidas en las dependencias que el código alcanza. Aparte
+  # de build-test para que una base de datos de avisos nueva no tumbe una
+  # compilación que no ha cambiado; revisar su resultado en cada PR.
+  vuln:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: source/backend/go/bridge/go.mod
+          cache-dependency-path: source/backend/go/bridge/go.sum
+
+      - name: govulncheck
+        run: make vuln
 
   e2e:
     runs-on: ubuntu-latest

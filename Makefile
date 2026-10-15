@@ -30,6 +30,7 @@ help:
 	@echo "  make test-integration  - Adaptadores (Pion, FFmpeg, HTTP)"
 	@echo "  make coverage          - Tests con cobertura (umbral 80%)"
 	@echo "  make lint | format     - gofmt + go vet (+ staticcheck si existe)"
+	@echo "  make vuln              - govulncheck: vulnerabilidades conocidas que el código alcanza"
 	@echo "  make e2e               - E2E del webrelay contra este puente"
 	@echo "  make clean             - Limpiar artefactos"
 	@echo "  make docs              - Sitio MkDocs en $(SITE_DIR)/"
