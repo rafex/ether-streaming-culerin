@@ -141,6 +141,10 @@ type pipeline struct {
 // frame; the previous run stays on air meanwhile.
 const startupTimeout = 15 * time.Second
 
+// keyframeRetry is how often a starting run re-requests keyframes from its
+// publishers until it is on air.
+const keyframeRetry = 250 * time.Millisecond
+
 func (p *pipeline) apply(plan domain.CompositionPlan, outputs []ports.Output) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -309,20 +313,17 @@ func (p *pipeline) retry(gen int) {
 	}
 }
 
-// requestKeyframes asks the publishers for keyframes every second until the
-// run goes on air: FFmpeg opens its inputs one by one and each decoder
-// starts on a keyframe. On air means every input decodes (the overlay and
-// mix wait for all of them).
+// requestKeyframes asks the publishers for keyframes right away and then
+// every keyframeRetry until the run goes on air: FFmpeg opens its inputs one
+// by one (each socket only exists once opened, so the keyframe it needs must
+// arrive after that) and each decoder starts on a keyframe. On air means every
+// input decodes (the overlay and mix wait for all of them). The shorter the
+// retry, the less each sequentially opened video input waits.
 func (p *pipeline) requestKeyframes(run *composeRun, gen int, inputs []rtpInput) {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(keyframeRetry)
 	defer ticker.Stop()
 	deadline := time.Now().Add(startupTimeout)
 	for time.Now().Before(deadline) {
-		select {
-		case <-run.done:
-			return
-		case <-ticker.C:
-		}
 		p.mu.Lock()
 		done := p.stopped || p.onAir >= gen
 		p.mu.Unlock()
@@ -331,6 +332,11 @@ func (p *pipeline) requestKeyframes(run *composeRun, gen int, inputs []rtpInput)
 		}
 		for _, in := range inputs {
 			p.c.tap.RequestKeyframe(p.room, in.ref)
+		}
+		select {
+		case <-run.done:
+			return
+		case <-ticker.C:
 		}
 	}
 }
