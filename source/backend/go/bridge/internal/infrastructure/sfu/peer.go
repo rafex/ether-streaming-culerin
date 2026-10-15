@@ -29,6 +29,12 @@ type peer struct {
 	pending   map[domain.PeerRole][]webrtc.ICECandidateInit
 
 	// subscribe negotiation: one offer in flight; changes meanwhile set again.
+	// negMu serializes the calls that change the subscribe connection's SDP
+	// state (SetRemoteDescription of the answer, CreateOffer/SetLocalDescription,
+	// rollback): Pion does not support them running concurrently, and Resume
+	// (on reconnect) can overlap with an answer or a track-driven renegotiation.
+	// It is never held while calling p.sink or taking p.mu for long.
+	negMu       sync.Mutex
 	negotiating bool
 	again       bool
 	restart     bool
@@ -131,7 +137,10 @@ func (p *peer) newPublishConnection() (*webrtc.PeerConnection, error) {
 
 // AnswerSubscribe implements ports.MediaPeer.
 func (p *peer) AnswerSubscribe(sdp string) error {
-	if err := p.sub.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: sdp}); err != nil {
+	p.negMu.Lock()
+	err := p.sub.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: sdp})
+	p.negMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("set subscribe answer: %w", err)
 	}
 	p.flushCandidates(domain.RoleSubscribe, p.sub)
@@ -196,9 +205,11 @@ func (p *peer) Resume() {
 	inFlight := p.negotiating
 	p.negotiating = false
 	p.mu.Unlock()
+	p.negMu.Lock()
 	if inFlight && p.sub.SignalingState() == webrtc.SignalingStateHaveLocalOffer {
 		_ = p.sub.SetLocalDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeRollback})
 	}
+	p.negMu.Unlock()
 	state := p.sub.ICEConnectionState()
 	restart := state == webrtc.ICEConnectionStateFailed || state == webrtc.ICEConnectionStateDisconnected
 	p.renegotiate(restart)
@@ -288,10 +299,12 @@ func (p *peer) renegotiate(iceRestart bool) {
 	p.negotiating = true
 	p.mu.Unlock()
 
+	p.negMu.Lock()
 	offer, err := p.sub.CreateOffer(&webrtc.OfferOptions{ICERestart: iceRestart})
 	if err == nil {
 		err = p.sub.SetLocalDescription(offer)
 	}
+	p.negMu.Unlock()
 	if err != nil {
 		p.sfu.log.Warn("subscribe offer failed", "participant", p.id, "err", err)
 		p.mu.Lock()
