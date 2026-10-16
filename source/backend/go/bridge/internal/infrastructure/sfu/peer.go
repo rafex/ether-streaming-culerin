@@ -1,7 +1,10 @@
 package sfu
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -306,7 +309,11 @@ func (p *peer) renegotiate(iceRestart bool) {
 	}
 	p.negMu.Unlock()
 	if err != nil {
-		p.sfu.log.Warn("subscribe offer failed", "participant", p.id, "err", err)
+		level := slog.LevelWarn
+		if p.closing(err) {
+			level = slog.LevelDebug // a guest left while the offer was being made: expected
+		}
+		p.sfu.log.Log(context.Background(), level, "subscribe offer failed", "participant", p.id, "err", err)
 		p.mu.Lock()
 		p.negotiating = false
 		p.mu.Unlock()
@@ -324,6 +331,15 @@ func (p *peer) renegotiate(iceRestart bool) {
 	p.mu.Unlock()
 	p.sink(domain.NewTracks(tracks))
 	p.sink(domain.NewSubscribeOffer(p.sub.LocalDescription().SDP))
+}
+
+// closing reports whether err is just the peer connection having been closed under a
+// renegotiation (the guest left, or the room closed): normal, not worth a warning.
+func (p *peer) closing(err error) bool {
+	p.mu.Lock()
+	closed := p.closed
+	p.mu.Unlock()
+	return closed || errors.Is(err, webrtc.ErrConnectionClosed)
 }
 
 func hasTransceivers(pc *webrtc.PeerConnection) bool { return len(pc.GetTransceivers()) > 0 }
