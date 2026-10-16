@@ -71,7 +71,30 @@ type roomEntry struct {
 	room    *domain.Room
 	members map[domain.ParticipantID]*member
 	invites map[string]*inviteRecord // by invitation id
+	waiting map[string]*waitingGuest // by the id the host sees
 }
+
+// waitingGuest is someone with a valid invitation parked in the waiting room of
+// an approval-mode room: no seat, no media session, no presence for the others.
+type waitingGuest struct {
+	id     string
+	name   string
+	title  string
+	conn   ports.Connection
+	since  time.Time
+	token  string // set once the host admitted them: the one-time key to `join`
+	timer  ports.Timer
+	invite string
+}
+
+// Waiting room limits.
+const (
+	MaxWaiting = 20
+	// WaitingTimeout is how long a guest waits for the host; AdmitClaimTimeout how
+	// long an admitted guest has to come back with the token.
+	WaitingTimeout    = 5 * time.Minute
+	AdmitClaimTimeout = 30 * time.Second
+)
 
 // inviteRecord is what the bridge remembers about one issued invitation: the
 // token itself is a signed bearer credential, but whether it still works (not
@@ -105,7 +128,8 @@ const (
 )
 
 func newRoomEntry(room *domain.Room) *roomEntry {
-	return &roomEntry{room: room, members: map[domain.ParticipantID]*member{}, invites: map[string]*inviteRecord{}}
+	return &roomEntry{room: room, members: map[domain.ParticipantID]*member{}, invites: map[string]*inviteRecord{},
+		waiting: map[string]*waitingGuest{}}
 }
 
 type member struct {
@@ -219,6 +243,9 @@ func (h *Hub) Peek(id domain.RoomID, token string) (domain.RoomInfoMessage, stri
 type JoinResult struct {
 	Self ParticipantRef
 	Peer ports.MediaPeer
+	// Waiting is the id of the waiting-room entry when the guest was not seated
+	// but parked until the host admits them (Self and Peer are then empty).
+	Waiting string
 }
 
 // ParticipantRef locates a participant.
@@ -273,6 +300,17 @@ func (h *Hub) Join(id domain.RoomID, conn ports.Connection, msg domain.JoinMessa
 		if err := rec.usable(h.clock.Now()); err != nil {
 			h.mu.Unlock()
 			return JoinResult{}, err
+		}
+	}
+	if entry.room.Settings.Admission == domain.AdmissionApproval && !entry.room.Closed {
+		if h.claimAdmissionLocked(entry, conn, msg.Admit) == nil {
+			if msg.Admit != "" {
+				h.mu.Unlock()
+				return JoinResult{}, domain.Fatalf(domain.CodeDenied, "the host's approval is no longer valid")
+			}
+			res, err := h.enqueueWaitingLocked(id, entry, conn, msg, inviteID)
+			h.mu.Unlock()
+			return res, err
 		}
 	}
 	p, err := entry.room.Join(msg.Name, msg.Title, msg.Video, h.clock.Now())
@@ -450,6 +488,7 @@ type RoomPatch struct {
 	HostAvatar *string
 	Capacity   *int
 	Layout     *domain.LayoutMode
+	Admission  *domain.AdmissionMode
 }
 
 // UpdateRoom edits the room settings; guests see the new title on their next
@@ -477,11 +516,20 @@ func (h *Hub) UpdateRoom(id domain.RoomID, patch RoomPatch) (RoomView, error) {
 	if patch.Layout != nil {
 		s.Layout = *patch.Layout
 	}
+	if patch.Admission != nil {
+		s.Admission = *patch.Admission
+	}
 	if err := s.Validate(); err != nil {
 		h.mu.Unlock()
 		return RoomView{}, err
 	}
 	entry.room.Settings = s
+	if s.Admission == domain.AdmissionOpen {
+		// Nobody should be left waiting for an approval the room no longer asks for.
+		for _, w := range entry.waiting {
+			h.approveLocked(w)
+		}
+	}
 	view := h.viewLocked(entry)
 	h.mu.Unlock()
 	h.onChange(id)
@@ -498,6 +546,9 @@ func (h *Hub) CloseRoom(id domain.RoomID) error {
 		return err
 	}
 	entry.room.Close()
+	for wid := range entry.waiting {
+		h.dropWaitingLocked(entry, wid, domain.Fatalf(domain.CodeRoomClosed, "the host closed the room"), 4410)
+	}
 	var refs []ParticipantRef
 	for pid, m := range entry.members {
 		if m.conn != nil {
@@ -512,6 +563,137 @@ func (h *Hub) CloseRoom(id domain.RoomID) error {
 	}
 	h.log.Info("room closed", "room", id)
 	h.onChange(id)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Waiting room
+// ---------------------------------------------------------------------------
+
+// enqueueWaitingLocked parks a guest until the host admits them.
+func (h *Hub) enqueueWaitingLocked(room domain.RoomID, entry *roomEntry, conn ports.Connection, msg domain.JoinMessage, inviteID string) (JoinResult, error) {
+	if len(entry.waiting) >= MaxWaiting {
+		return JoinResult{}, domain.Fatalf(domain.CodeRoomFull, "too many people are waiting to enter %s", room)
+	}
+	w := &waitingGuest{id: randomHex(4), name: msg.Name, title: msg.Title, conn: conn, since: h.clock.Now(), invite: inviteID}
+	entry.waiting[w.id] = w
+	w.timer = h.clock.AfterFunc(WaitingTimeout, func() { h.expireWaiting(room, w) })
+	conn.Send(domain.NewWaiting())
+	h.log.Info("guest waiting for approval", "room", room, "waiting", w.id, "name", w.name)
+	return JoinResult{Waiting: w.id}, nil
+}
+
+// claimAdmissionLocked consumes the one-time admission a guest was given.
+func (h *Hub) claimAdmissionLocked(entry *roomEntry, conn ports.Connection, token string) *waitingGuest {
+	if token == "" {
+		return nil
+	}
+	for wid, w := range entry.waiting {
+		if w.token != "" && w.conn == conn && subtle.ConstantTimeCompare([]byte(w.token), []byte(token)) == 1 {
+			if w.timer != nil {
+				w.timer.Stop()
+			}
+			delete(entry.waiting, wid)
+			return w
+		}
+	}
+	return nil
+}
+
+// approveLocked tells a waiting guest they may come in (idempotent).
+func (h *Hub) approveLocked(w *waitingGuest) {
+	if w.token != "" {
+		return
+	}
+	w.token = randomHex(16)
+	if w.timer != nil {
+		w.timer.Stop()
+	}
+	w.timer = h.clock.AfterFunc(AdmitClaimTimeout, func() { h.expireClaim(w) })
+	w.conn.Send(domain.NewAdmitted(w.token))
+}
+
+// dropWaitingLocked removes a guest from the waiting room and tells them why.
+func (h *Hub) dropWaitingLocked(entry *roomEntry, wid string, reason *domain.Error, closeCode int) {
+	w, ok := entry.waiting[wid]
+	if !ok {
+		return
+	}
+	delete(entry.waiting, wid)
+	if w.timer != nil {
+		w.timer.Stop()
+	}
+	w.conn.Send(domain.NewError(reason))
+	w.conn.Close(closeCode, string(reason.Code))
+}
+
+// expireWaiting removes a guest the host never answered.
+func (h *Hub) expireWaiting(room domain.RoomID, w *waitingGuest) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if entry := h.rooms[room]; entry != nil && entry.waiting[w.id] == w && w.token == "" {
+		h.dropWaitingLocked(entry, w.id, domain.Fatalf(domain.CodeDenied, "nobody admitted you in time"), 4405)
+	}
+}
+
+// expireClaim removes an admitted guest who never came back with the token.
+func (h *Hub) expireClaim(w *waitingGuest) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, entry := range h.rooms {
+		if entry.waiting[w.id] == w {
+			delete(entry.waiting, w.id)
+			return
+		}
+	}
+}
+
+// WaitingGone forgets a waiting guest whose socket closed or who left.
+func (h *Hub) WaitingGone(room domain.RoomID, wid string, conn ports.Connection) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	entry := h.rooms[room]
+	if entry == nil {
+		return
+	}
+	if w, ok := entry.waiting[wid]; ok && w.conn == conn {
+		delete(entry.waiting, wid)
+		if w.timer != nil {
+			w.timer.Stop()
+		}
+	}
+}
+
+// Admit lets a waiting guest in: they are told and come back with a token.
+func (h *Hub) Admit(room domain.RoomID, wid string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	entry, err := h.entryLocked(room)
+	if err != nil {
+		return err
+	}
+	w, ok := entry.waiting[wid]
+	if !ok {
+		return domain.Errorf(domain.CodeNotFound, "nobody is waiting as %s in room %s", wid, room)
+	}
+	h.approveLocked(w)
+	h.log.Info("guest admitted", "room", room, "waiting", wid, "name", w.name)
+	return nil
+}
+
+// Deny turns a waiting guest away.
+func (h *Hub) Deny(room domain.RoomID, wid string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	entry, err := h.entryLocked(room)
+	if err != nil {
+		return err
+	}
+	if _, ok := entry.waiting[wid]; !ok {
+		return domain.Errorf(domain.CodeNotFound, "nobody is waiting as %s in room %s", wid, room)
+	}
+	h.dropWaitingLocked(entry, wid, domain.Fatalf(domain.CodeDenied, "the host did not let you in"), 4405)
+	h.log.Info("guest denied", "room", room, "waiting", wid)
 	return nil
 }
 

@@ -15,6 +15,7 @@ const (
 	CodeRoomClosed     ErrorCode = "room-closed"
 	CodeRoomFull       ErrorCode = "room-full"
 	CodeKicked         ErrorCode = "kicked"
+	CodeDenied         ErrorCode = "denied"
 	CodeBadRequest     ErrorCode = "bad-request"
 	CodeNotJoined      ErrorCode = "not-joined"
 	CodeConflict       ErrorCode = "conflict"

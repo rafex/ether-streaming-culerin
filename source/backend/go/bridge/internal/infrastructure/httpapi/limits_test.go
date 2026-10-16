@@ -352,3 +352,57 @@ func TestInvitationsAPI(t *testing.T) {
 		t.Fatalf("revoked link: %v", err)
 	}
 }
+
+func TestWaitingRoomAPI(t *testing.T) {
+	srv := newServer(t, false)
+	code, room := call(t, srv, "POST", "/api/v1/rooms", `{"id":"demo","title":"Demo","host":{"name":"H"},"admission":"approval"}`, adminToken)
+	if code != 201 || room["admission"] != "approval" || room["waiting"] == nil {
+		t.Fatalf("create: %d %v", code, room)
+	}
+	if code, _ := call(t, srv, "POST", "/api/v1/rooms", `{"id":"x","title":"T","host":{"name":"H"},"admission":"moderated"}`, adminToken); code != 400 {
+		t.Fatalf("unknown admission: %d", code)
+	}
+	if code, r := call(t, srv, "PATCH", "/api/v1/rooms/demo", `{"admission":"open"}`, adminToken); code != 200 || r["admission"] != "open" {
+		t.Fatalf("patch: %d %v", code, r)
+	}
+	call(t, srv, "PATCH", "/api/v1/rooms/demo", `{"admission":"approval"}`, adminToken)
+
+	for _, path := range []string{"/api/v1/rooms/demo/waiting/abc/admit", "/api/v1/rooms/demo/waiting/abc/deny"} {
+		if code, _ := call(t, srv, "POST", path, "", ""); code != 401 {
+			t.Errorf("%s without a token: %d", path, code)
+		}
+		if code, _ := call(t, srv, "POST", path, "", adminToken); code != 404 {
+			t.Errorf("%s for nobody: %d", path, code)
+		}
+	}
+
+	// A real guest over the WebSocket: waits, is admitted through the API, comes back with the token.
+	_, inv := call(t, srv, "POST", "/api/v1/rooms/demo/invites", `{}`, adminToken)
+	c, _, err := dial(t, srv, "http://relay.example", domain.SignalingSubprotocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	roundTrip(t, c, `{"type":"room.peek","room":"demo","token":"`+inv["token"].(string)+`"}`, "room.info")
+	roundTrip(t, c, `{"type":"join","name":"Ana"}`, "waiting")
+
+	_, list := call(t, srv, "GET", "/api/v1/rooms/demo", "", adminToken)
+	waiting, _ := list["waiting"].([]any)
+	if len(waiting) != 1 || waiting[0].(map[string]any)["name"] != "Ana" {
+		t.Fatalf("waiting = %v", list["waiting"])
+	}
+	guest := waiting[0].(map[string]any)["id"].(string)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/rooms/demo/waiting/"+guest+"/admit", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 204 {
+		t.Fatalf("admit: %v %v", resp, err)
+	}
+	resp.Body.Close()
+	admitted := roundTrip(t, c, "", "admitted")
+	token, _ := admitted["token"].(string)
+	if token == "" {
+		t.Fatalf("admitted = %v", admitted)
+	}
+	roundTrip(t, c, `{"type":"join","name":"Ana","admit":"`+token+`"}`, "welcome")
+}

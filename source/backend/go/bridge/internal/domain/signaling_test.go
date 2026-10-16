@@ -125,3 +125,37 @@ func mustJSON(t *testing.T, v any) string {
 	}
 	return string(b)
 }
+
+func TestJoinCarriesTheAdmissionToken(t *testing.T) {
+	msg, err := ParseClientMessage([]byte(`{"type":"join","name":"Ana","admit":"tok123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j := msg.(JoinMessage); j.Admit != "tok123" {
+		t.Fatalf("join = %+v", j)
+	}
+	long := `{"type":"join","name":"Ana","admit":"` + strings.Repeat("a", 257) + `"}`
+	if _, err := ParseClientMessage([]byte(long)); err == nil {
+		t.Fatal("an oversized admission token was accepted")
+	}
+}
+
+func TestWaitingAndAdmittedMessagesSerialize(t *testing.T) {
+	if got := mustJSON(t, NewWaiting()); got != `{"type":"waiting"}` {
+		t.Fatalf("waiting = %s", got)
+	}
+	if got := mustJSON(t, NewAdmitted("abc")); got != `{"type":"admitted","token":"abc"}` {
+		t.Fatalf("admitted = %s", got)
+	}
+}
+
+func TestAdmissionDefaultsToOpenAndRejectsUnknownModes(t *testing.T) {
+	s := RoomSettings{Title: "T", Host: HostInfo{Name: "H"}}
+	if err := s.Validate(); err != nil || s.Admission != AdmissionOpen {
+		t.Fatalf("default = %q err=%v", s.Admission, err)
+	}
+	s = RoomSettings{Title: "T", Host: HostInfo{Name: "H"}, Admission: "moderated"}
+	if err := s.Validate(); err == nil {
+		t.Fatal("unknown admission accepted")
+	}
+}

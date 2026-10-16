@@ -193,6 +193,7 @@ function renderRoom() {
   if (document.activeElement !== $('#layout-mode')) $('#layout-mode').value = room.layout;
 
   renderParticipants(room);
+  renderWaiting(room);
   renderDestinations(room);
   for (const control of document.querySelectorAll('#room button, #room input, #room select')) {
     if (control.id !== 'air-stop' && control.id !== 'invite-copy') control.disabled ||= room.closed;
@@ -232,6 +233,31 @@ function renderParticipants(room) {
               if (confirm(`¿Retirar a ${p.name} de la sala?`)) mutate(`/rooms/${room.id}/participants/${p.id}`, 'DELETE');
             },
           }),
+        ]),
+      ]),
+    ),
+  );
+}
+
+function renderWaiting(room) {
+  if (document.activeElement !== $('#admission-mode')) $('#admission-mode').value = room.admission;
+  const waiting = room.waiting || [];
+  $('#waiting-box').hidden = waiting.length === 0;
+  $('#no-waiting').hidden = waiting.length > 0 || room.admission !== 'approval';
+  $('#waiting-count').textContent = waiting.length ? `(${waiting.length})` : '';
+  $('#waiting').replaceChildren(
+    ...waiting.map((w) =>
+      el('tr', {}, [
+        el('td', {}, [el('strong', { text: w.name }), w.title ? el('div', { class: 'muted small', text: w.title }) : '']),
+        el('td', { class: 'small muted', text: new Date(w.since).toLocaleTimeString() }),
+        el('td', {}, [
+          w.admitted
+            ? el('span', { class: 'small muted', text: 'admitido, entrando…' })
+            : el('button', { type: 'button', class: 'small', text: 'Admitir', onclick: () => mutate(`/rooms/${room.id}/waiting/${w.id}/admit`, 'POST') }),
+          ' ',
+          w.admitted
+            ? ''
+            : el('button', { type: 'button', class: 'ghost small', text: 'Denegar', onclick: () => mutate(`/rooms/${room.id}/waiting/${w.id}/deny`, 'POST') }),
         ]),
       ]),
     ),
@@ -436,6 +462,7 @@ $('#invite-copy').addEventListener('click', async () => {
   }, 1500);
 });
 
+$('#admission-mode').addEventListener('change', (event) => mutate(`/rooms/${state.selected}`, 'PATCH', { admission: event.target.value }));
 $('#layout-mode').addEventListener('change', (event) => mutate(`/rooms/${state.selected}`, 'PATCH', { layout: event.target.value }));
 
 $('#destination-form').addEventListener('submit', async (event) => {
