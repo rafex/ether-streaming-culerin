@@ -35,6 +35,13 @@ aquí solo se documenta cómo lo implementa el puente.
   conexiones WebRTC durante 20 s. `join {resume}` lo recupera (`welcome
   {resumed: true}`) y el puente vuelve a ofrecer `subscribe` (con ICE restart
   si los medios también cayeron). Pasado el plazo sale de la sala.
+- **Secreto de reanudación**: los ids (`p-1`, `p-2`…) son secuenciales y todos
+  los ven en `participants`, así que no bastan para reanudar. `welcome` incluye
+  `resumeToken` (128 bits aleatorios, solo para esa conexión) y `join {resume,
+  resumeToken}` debe devolverlo; se compara en tiempo constante. Si falta o no
+  coincide, el puente **no** toca la sesión ajena: ignora `resume`, registra un
+  aviso y admite al cliente como invitado nuevo (así los clientes anteriores al
+  token solo pierden su sitio en lugar de fallar).
 - Modo desarrollo: salas bajo demanda (`Sala de pruebas · <id>`, anfitrión
   `Anfitrión de pruebas`, canales youtube/twitch), token `invalid` rechazado y
   sala `closed` inexistente — igual que `dev-bridge.mjs` del webrelay.
