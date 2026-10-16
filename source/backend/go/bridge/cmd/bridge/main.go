@@ -80,7 +80,7 @@ func run() error {
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(hub, broadcaster, httpapi.Options{
-			AdminToken: cfg.AdminToken, AllowedOrigins: cfg.AllowedOrigins, DevMode: cfg.DevMode,
+			AdminToken: cfg.AdminToken, AdminTokenNext: cfg.AdminTokenNext, AllowedOrigins: cfg.AllowedOrigins, DevMode: cfg.DevMode,
 			WebRelayURL: cfg.WebRelayURL, Output: cfg.Output, TrustedProxyHops: cfg.TrustedProxyHops,
 		}, log),
 		ReadHeaderTimeout: 10 * time.Second,

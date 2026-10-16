@@ -23,9 +23,11 @@ const MinAdminTokenLength = 32
 
 // Config is the whole bridge configuration.
 type Config struct {
-	Addr           string
-	DevMode        bool
-	AdminToken     string
+	Addr       string
+	DevMode    bool
+	AdminToken string
+	// AdminTokenNext is a second token accepted during a rotation (optional).
+	AdminTokenNext string
 	InviteSecret   []byte
 	InviteTTL      time.Duration
 	WebRelayURL    string
@@ -69,15 +71,16 @@ func Load(getenv func(string) string) (Config, error) {
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Sprintf(format, args...)) }
 
 	cfg := Config{
-		Addr:        env("BRIDGE_ADDR", ":8090"),
-		WebRelayURL: strings.TrimRight(env("BRIDGE_WEBRELAY_URL", "http://localhost:5173"), "/"),
-		AdminToken:  env("BRIDGE_ADMIN_TOKEN", ""),
-		FFmpegPath:  env("BRIDGE_FFMPEG", "ffmpeg"),
-		FontFile:    env("BRIDGE_FONT_FILE", ""),
-		WorkDir:     env("BRIDGE_WORK_DIR", os.TempDir()),
-		RecordDir:   env("BRIDGE_RECORD_DIR", ""),
-		Profile:     domain.DefaultProfile,
-		Output:      domain.DefaultOutput,
+		Addr:           env("BRIDGE_ADDR", ":8090"),
+		WebRelayURL:    strings.TrimRight(env("BRIDGE_WEBRELAY_URL", "http://localhost:5173"), "/"),
+		AdminToken:     env("BRIDGE_ADMIN_TOKEN", ""),
+		AdminTokenNext: env("BRIDGE_ADMIN_TOKEN_NEXT", ""),
+		FFmpegPath:     env("BRIDGE_FFMPEG", "ffmpeg"),
+		FontFile:       env("BRIDGE_FONT_FILE", ""),
+		WorkDir:        env("BRIDGE_WORK_DIR", os.TempDir()),
+		RecordDir:      env("BRIDGE_RECORD_DIR", ""),
+		Profile:        domain.DefaultProfile,
+		Output:         domain.DefaultOutput,
 	}
 	cfg.DevMode = parseBool(env("BRIDGE_DEV_MODE", "false"), fail, "BRIDGE_DEV_MODE")
 	cfg.ICELoopback = parseBool(env("BRIDGE_ICE_LOOPBACK", "false"), fail, "BRIDGE_ICE_LOOPBACK")
@@ -150,6 +153,14 @@ func Load(getenv func(string) string) (Config, error) {
 		cfg.AdminToken, cfg.GeneratedAdminToken = "dev", true
 	case cfg.AdminToken == "":
 		fail("BRIDGE_ADMIN_TOKEN is required unless BRIDGE_DEV_MODE=true")
+	}
+	if cfg.AdminTokenNext != "" {
+		switch {
+		case len(cfg.AdminTokenNext) < MinAdminTokenLength && !cfg.DevMode:
+			fail("BRIDGE_ADMIN_TOKEN_NEXT must have at least %d characters (try: openssl rand -base64 32)", MinAdminTokenLength)
+		case cfg.AdminTokenNext == cfg.AdminToken:
+			fail("BRIDGE_ADMIN_TOKEN_NEXT must differ from BRIDGE_ADMIN_TOKEN (a rotation that changes nothing)")
+		}
 	}
 
 	if len(errs) > 0 {

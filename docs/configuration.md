@@ -13,6 +13,7 @@ Todo se configura con variables de entorno `BRIDGE_*` (o `.env` con
 | `BRIDGE_ADDR` | `:8090` | Dirección HTTP |
 | `BRIDGE_DEV_MODE` | `false` | Salas bajo demanda, cualquier token salvo `invalid`, sala `closed` inexistente (como el puente de pruebas del webrelay). **Solo local.** |
 | `BRIDGE_ADMIN_TOKEN` | — (`dev` en modo desarrollo) | Bearer de la API y la consola; ≥ 32 caracteres (`openssl rand -base64 32`) |
+| `BRIDGE_ADMIN_TOKEN_NEXT` | — | Segundo token válido **solo durante una rotación** (mismas reglas que el principal, y distinto de él). Ver *Rotar el token de admin* |
 | `BRIDGE_INVITE_SECRET` | — (aleatorio en modo desarrollo) | Clave HMAC-SHA256 de las invitaciones; ≥ 32 caracteres |
 | `BRIDGE_INVITE_TTL` | `24h` | Validez por defecto de las invitaciones (máx. 30 días) |
 | `BRIDGE_WEBRELAY_URL` | `http://localhost:5173` | Base de los enlaces `/join/<sala>?t=…` |
@@ -68,3 +69,21 @@ límites no se aplican** (en vez de imputarse al proxy) y se avisa en el log com
 máximo una vez por minuto (`no client address in X-Forwarded-For`): ese aviso
 indica un `N` equivocado. Comprueba el valor con un intento de token erróneo
 desde tu IP y mira `client=` en el log antes de fiarte de él.
+
+## Rotar el token de admin
+
+El token se lee al arrancar, así que cambiarlo exige reiniciar el puente (se
+pierden las salas: hazlo con la sala vacía). Para no quedarte sin ningún token
+que funcione entre un reinicio y el siguiente:
+
+1. Genera uno nuevo: `openssl rand -base64 32`.
+2. Ponlo como `BRIDGE_ADMIN_TOKEN_NEXT` y reinicia. **Valen los dos.**
+3. Entra en la consola con el nuevo; el primer uso queda en el log
+   (`first request with BRIDGE_ADMIN_TOKEN_NEXT (safe to promote it)`).
+4. Promociónalo: ponlo en `BRIDGE_ADMIN_TOKEN`, quita `…_NEXT` y reinicia.
+   El anterior deja de valer.
+
+El bloqueo por intentos fallidos cuenta igual con cualquiera de los dos. Si
+sospechas que el token se filtró, no esperes a la ventana: cámbialo directamente
+(paso 4) y reinicia. Para el despliegue en k3s, el procedimiento con SOPS está en
+`docs/hardening.md` del repositorio gitops.

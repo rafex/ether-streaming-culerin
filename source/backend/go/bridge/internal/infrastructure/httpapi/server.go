@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rafex/ether-streaming-culerin/source/backend/go/bridge/internal/application"
@@ -25,7 +26,10 @@ var consoleFiles embed.FS
 
 // Options configures the HTTP surface.
 type Options struct {
-	AdminToken     string
+	AdminToken string
+	// AdminTokenNext, when set, is accepted too: it lets the token be rotated without
+	// a moment where the console and scripts have none that works.
+	AdminTokenNext string
 	AllowedOrigins []string
 	DevMode        bool
 	WebRelayURL    string
@@ -131,6 +135,11 @@ func (s *Server) clock() time.Time { return s.now() }
 // authorize checks the host's bearer token in constant time.
 func (s *Server) authorize(next http.Handler) http.Handler {
 	expected := []byte("Bearer " + s.opts.AdminToken)
+	var expectedNext []byte
+	if s.opts.AdminTokenNext != "" {
+		expectedNext = []byte("Bearer " + s.opts.AdminTokenNext)
+	}
+	var nextSeen atomic.Bool
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		client := s.client(r)
@@ -142,7 +151,16 @@ func (s *Server) authorize(next http.Handler) http.Handler {
 			return
 		}
 		got := []byte(r.Header.Get("Authorization"))
-		if subtle.ConstantTimeCompare(got, expected) != 1 {
+		// Both comparisons always run (no short circuit): which token matched is not a timing signal.
+		matchCurrent := subtle.ConstantTimeCompare(got, expected)
+		matchNext := 0
+		if expectedNext != nil {
+			matchNext = subtle.ConstantTimeCompare(got, expectedNext)
+		}
+		if matchNext == 1 && matchCurrent == 0 && nextSeen.CompareAndSwap(false, true) {
+			s.log.Info("admin API: first request with BRIDGE_ADMIN_TOKEN_NEXT (safe to promote it)")
+		}
+		if matchCurrent|matchNext != 1 {
 			if client != "" {
 				s.authFailures.allow(client)
 			}
