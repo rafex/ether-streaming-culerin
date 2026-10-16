@@ -65,6 +65,10 @@ func (s *RoomSettings) Validate() error {
 		return Errorf(CodeBadRequest, "title must have 1..120 characters")
 	case s.Host.Name == "" || utf8.RuneCountInString(s.Host.Name) > MaxNameLength:
 		return Errorf(CodeBadRequest, "host name must have 1..%d characters", MaxNameLength)
+	case checkLabel("title", s.Title) != nil:
+		return checkLabel("title", s.Title)
+	case checkLabel("host name", s.Host.Name) != nil:
+		return checkLabel("host name", s.Host.Name)
 	case s.Host.Avatar != "" && !strings.HasPrefix(s.Host.Avatar, "https://") && !strings.HasPrefix(s.Host.Avatar, "http://"):
 		return Errorf(CodeBadRequest, "host avatar must be an http(s) URL")
 	}

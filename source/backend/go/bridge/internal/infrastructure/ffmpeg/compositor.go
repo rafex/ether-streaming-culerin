@@ -417,8 +417,9 @@ func (r *composeRun) addInput(c *Compositor, room domain.RoomID, ref domain.Sour
 
 func (r *composeRun) text(key, content string) string {
 	path := filepath.Join(r.dir, key+".txt")
-	// drawtext expands % sequences in text files too; double them.
-	_ = os.WriteFile(path, []byte(strings.ReplaceAll(content, "%", "%%")), 0o600)
+	// Written as it is: drawtext runs with expansion=none (see graph.go), so nothing in
+	// a participant's name is interpreted.
+	_ = os.WriteFile(path, []byte(content), 0o600)
 	return path
 }
 
