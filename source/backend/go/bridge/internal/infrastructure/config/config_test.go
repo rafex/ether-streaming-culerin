@@ -83,3 +83,26 @@ func TestPrivateDestinationsDefaultToDevMode(t *testing.T) {
 		t.Fatalf("dev=%v prod=%v", dev.AllowPrivateDestinations, prod.AllowPrivateDestinations)
 	}
 }
+
+func TestAdminTokenNextForRotation(t *testing.T) {
+	base := map[string]string{"BRIDGE_INVITE_SECRET": strings.Repeat("s", 32), "BRIDGE_ADMIN_TOKEN": strings.Repeat("a", 32)}
+	with := func(next string) (Config, error) {
+		vars := map[string]string{"BRIDGE_ADMIN_TOKEN_NEXT": next}
+		for k, v := range base {
+			vars[k] = v
+		}
+		return Load(env(vars))
+	}
+	if cfg, err := with(strings.Repeat("b", 32)); err != nil || cfg.AdminTokenNext != strings.Repeat("b", 32) {
+		t.Fatalf("valid next token: %+v %v", cfg.AdminTokenNext, err)
+	}
+	if cfg, err := with(""); err != nil || cfg.AdminTokenNext != "" {
+		t.Fatalf("no next token: %v", err)
+	}
+	if _, err := with("short"); err == nil || !strings.Contains(err.Error(), "BRIDGE_ADMIN_TOKEN_NEXT") {
+		t.Fatalf("short next token accepted: %v", err)
+	}
+	if _, err := with(strings.Repeat("a", 32)); err == nil || !strings.Contains(err.Error(), "must differ") {
+		t.Fatalf("next equal to current accepted: %v", err)
+	}
+}

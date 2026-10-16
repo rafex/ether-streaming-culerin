@@ -396,3 +396,46 @@ func TestWaitingRoomAPI(t *testing.T) {
 	}
 	roundTrip(t, c, `{"type":"join","name":"Ana","admit":"`+token+`"}`, "welcome")
 }
+
+func TestAdminTokenRotation(t *testing.T) {
+	const next = "next-admin-token-456-next-admin-token"
+	srv := tunedServer(t, func(s *Server) { s.opts.AdminTokenNext = next })
+	if code, _ := call(t, srv, "GET", "/api/v1/config", "", adminToken); code != 200 {
+		t.Fatalf("current token during a rotation: %d", code)
+	}
+	if code, _ := call(t, srv, "GET", "/api/v1/config", "", next); code != 200 {
+		t.Fatalf("next token during a rotation: %d", code)
+	}
+	for _, bad := range []string{"", "wrong", next + "x", adminToken[:len(adminToken)-1], "Bearer"} {
+		if code, _ := call(t, srv, "GET", "/api/v1/config", "", bad); code != 401 {
+			t.Errorf("token %q: %d", bad, code)
+		}
+	}
+}
+
+func TestWithoutANextTokenOnlyTheCurrentOneWorks(t *testing.T) {
+	srv := tunedServer(t, nil)
+	// An empty NEXT must never turn "Bearer " into a valid credential.
+	for _, bad := range []string{"", " "} {
+		req, _ := http.NewRequest("GET", srv.URL+"/api/v1/config", nil)
+		req.Header.Set("Authorization", "Bearer"+bad)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 401 {
+			t.Errorf("Authorization %q: %d", "Bearer"+bad, resp.StatusCode)
+		}
+	}
+}
+
+func TestFailedAttemptsWithEitherTokenStillLockOut(t *testing.T) {
+	srv := tunedServer(t, func(s *Server) { s.opts.AdminTokenNext = "next-admin-token-456-next-admin-token" })
+	for i := 0; i < authFailureBurst; i++ {
+		call(t, srv, "GET", "/api/v1/config", "", "wrong")
+	}
+	if code, _ := call(t, srv, "GET", "/api/v1/config", "", "next-admin-token-456-next-admin-token"); code != 429 {
+		t.Fatalf("the lockout must apply to the next token too: %d", code)
+	}
+}
