@@ -79,7 +79,7 @@ jobs:
           go-version-file: source/backend/go/bridge/go.mod
           cache-dependency-path: source/backend/go/bridge/go.sum
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
 
