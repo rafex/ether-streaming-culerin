@@ -143,7 +143,7 @@ const startupTimeout = 15 * time.Second
 
 // keyframeRetry is how often a starting run re-requests keyframes from its
 // publishers until it is on air.
-const keyframeRetry = 250 * time.Millisecond
+const keyframeRetry = 100 * time.Millisecond
 
 func (p *pipeline) apply(plan domain.CompositionPlan, outputs []ports.Output) error {
 	p.mu.Lock()

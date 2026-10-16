@@ -69,10 +69,13 @@ FFmpeg no admite cambiar entradas en caliente, así que cada plan nuevo
 arranca **otra ejecución** del compositor (*make-before-break*):
 
 1. La ejecución nueva arranca mientras la anterior sigue publicando; se piden
-   keyframes a sus fuentes de inmediato y cada 250 ms hasta que produce
+   keyframes a sus fuentes de inmediato y cada 100 ms hasta que produce
    (FFmpeg abre las entradas una a una y cada decodificador necesita un
    keyframe posterior a la apertura de su socket; con un reintento de 1 s
-   cada entrada de video costaba un segundo entero).
+   cada entrada de video costaba un segundo entero, con 250 ms ≈ 0,3 s). Chrome
+   fusiona las peticiones seguidas (medido: 89 PLI recibidos, 36 keyframes
+   codificados, sin más bytes subidos), así que apretar el reintento no cuesta
+   ancho de banda al invitado.
 2. Con su primer tag FLV de medios, el **empalmador** la pone al aire, mata a
    la anterior y reescribe sus marcas de tiempo sobre la línea temporal común
    (reloj desde el inicio, nunca hacia atrás). Cabeceras, metadatos y
