@@ -20,7 +20,9 @@ devuelven completas.
 | `GET /rooms/{room}` | — | `Room` |
 | `PATCH /rooms/{room}` | `{title?, host?: {name?, avatar?}, capacity?, layout?}` | `Room` |
 | `DELETE /rooms/{room}` | — | 204; cierra la sala: expulsa (`room-closed`) e invalida las invitaciones |
-| `POST /rooms/{room}/invites` | `{ttlSeconds?}` | 201 `{token, url, expiresAt}` |
+| `POST /rooms/{room}/invites` | `{ttlSeconds?, maxUses?}` | 201 `{id, token, url, expiresAt, maxUses}`. `maxUses` 0–1000 (0: sin límite) |
+| `GET /rooms/{room}/invites` | — | 200 lista `{id, createdAt, expiresAt, maxUses, uses, revoked, expired, active}`, la más nueva primero. **Nunca incluye el token ni el enlace** |
+| `DELETE /rooms/{room}/invites/{id}` | — | 204; revoca esa invitación (404 si no existe) |
 | `POST /rooms/{room}/destinations` | `{name, url, streamKey, kind?, enabled?}` | 201 `Destination` |
 | `PATCH /rooms/{room}/destinations/{id}` | `{enabled}` | `Room` |
 | `DELETE /rooms/{room}/destinations/{id}` | — | 204 |
@@ -57,8 +59,20 @@ Públicos: `GET /healthz` y `GET /signal` (señalización v2).
   columna), `grid` (siempre mosaico), `speaker` (el primero en escena en foco).
 - `kind`: `youtube`, `twitch`, `facebook`, `custom` (se deduce del host si se
   omite). Es lo que el lobby muestra como "canales".
-- Las invitaciones son tokens HMAC sin estado ligados a la sala y a una
-  caducidad: cerrar la sala es la forma de revocarlas.
+- Una invitación es un token firmado (HMAC) que lleva la sala, la caducidad y el
+  **id** de un registro que el puente guarda en memoria. La firma prueba que el
+  puente la emitió; que siga valiendo lo decide el registro: no revocada, no
+  caducada y con usos libres (`maxUses`). El token y el enlace solo se devuelven
+  al crearla; el puente no puede volver a mostrarlos, solo listar su estado y
+  revocarla.
+- Un uso se cuenta cuando un invitado **consigue sitio** (no al abrir el lobby,
+  no al reanudar tras una caída, no si la sala está llena). Revocar o agotar una
+  invitación no expulsa a quien ya entró (para eso `DELETE …/participants/{id}`)
+  pero sí impide entrar a quien tenía el lobby abierto y aún no había pulsado
+  «Entrar».
+- Hasta 100 invitaciones activas por sala (las caducadas o revocadas no cuentan).
+  Los tokens del formato anterior (`v1`, sin id) ya no se aceptan; el estado es
+  en memoria, así que un reinicio los habría invalidado de todos modos.
 
 ## Ejemplo
 

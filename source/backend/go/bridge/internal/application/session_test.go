@@ -37,11 +37,12 @@ func TestPeekValidatesTheInvitation(t *testing.T) {
 		}
 	}
 
+	issuedBefore := f.token("demo") // a link handed out before the host closes the room
 	if err := f.hub.CloseRoom("demo"); err != nil {
 		t.Fatal(err)
 	}
 	conn = &fakeConn{}
-	NewSession(f.hub, conn, quiet).Handle([]byte(`{"type":"room.peek","room":"demo","token":"` + f.token("demo") + `"}`))
+	NewSession(f.hub, conn, quiet).Handle([]byte(`{"type":"room.peek","room":"demo","token":"` + issuedBefore + `"}`))
 	if e := conn.last(t, "error").(domain.ErrorMessage); e.Code != domain.CodeRoomClosed {
 		t.Fatalf("closed room: %+v", e)
 	}

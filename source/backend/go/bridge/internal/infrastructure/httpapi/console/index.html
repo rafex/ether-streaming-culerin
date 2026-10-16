@@ -73,6 +73,7 @@
               <label>Validez<select id="invite-ttl">
                 <option value="3600">1 hora</option><option value="86400" selected>24 horas</option><option value="604800">7 días</option>
               </select></label>
+              <label>Usos máximos<input id="invite-max" type="number" min="0" max="1000" value="0" title="0 = sin límite"></label>
               <button id="invite-create" type="button">Generar enlace</button>
             </div>
             <div id="invite-result" class="invite" hidden>
@@ -80,6 +81,11 @@
               <button id="invite-copy" type="button" class="ghost">Copiar</button>
               <p class="muted small">Caduca: <span id="invite-expiry"></span></p>
             </div>
+            <table class="table small">
+              <thead><tr><th>Invitación</th><th>Caduca</th><th>Usos</th><th>Estado</th><th></th></tr></thead>
+              <tbody id="invites"></tbody>
+            </table>
+            <p id="no-invites" class="muted small">Sin invitaciones. El enlace solo se muestra al crearlo; después puedes revocarlo, no recuperarlo.</p>
           </div>
 
           <div class="card">

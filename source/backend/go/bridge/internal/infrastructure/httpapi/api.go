@@ -112,6 +112,7 @@ func (s *Server) closeRoom(w http.ResponseWriter, r *http.Request) {
 func (s *Server) invite(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TTLSeconds int `json:"ttlSeconds"`
+		MaxUses    int `json:"maxUses"`
 	}
 	if r.ContentLength != 0 {
 		if err := readJSON(r, &body); err != nil {
@@ -119,12 +120,29 @@ func (s *Server) invite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	inv, err := s.hub.Invite(roomID(r), time.Duration(body.TTLSeconds)*time.Second)
+	inv, err := s.hub.Invite(roomID(r), time.Duration(body.TTLSeconds)*time.Second, body.MaxUses)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, inv)
+}
+
+func (s *Server) listInvites(w http.ResponseWriter, r *http.Request) {
+	list, err := s.hub.Invites(roomID(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) revokeInvite(w http.ResponseWriter, r *http.Request) {
+	if err := s.hub.RevokeInvite(roomID(r), r.PathValue("invite")); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) addDestination(w http.ResponseWriter, r *http.Request) {
