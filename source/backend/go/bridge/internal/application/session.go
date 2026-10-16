@@ -35,6 +35,10 @@ func NewSession(hub *Hub, conn ports.Connection, log *slog.Logger) *Session {
 	return &Session{hub: hub, conn: conn, log: log}
 }
 
+// Admitted reports whether this socket has shown a valid invitation
+// (room.peek). Like Handle it must only be called from the socket's reader.
+func (s *Session) Admitted() bool { return s.peeked }
+
 // Handle processes one text frame.
 func (s *Session) Handle(data []byte) {
 	msg, err := domain.ParseClientMessage(data)

@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 	"unicode/utf8"
@@ -55,6 +57,50 @@ func (d *Destination) Validate() error {
 		return Errorf(CodeBadRequest, "destination kind %q is not youtube|twitch|facebook|custom", d.Kind)
 	}
 	return nil
+}
+
+// internalSuffixes are names that only resolve inside a cluster or LAN.
+var internalSuffixes = []string{".local", ".localhost", ".internal", ".lan", ".home", ".corp", ".svc", ".cluster.local"}
+
+// CheckPublicHost rejects destination hosts that point inside the bridge's own
+// network (loopback, private, link-local, CGNAT, unspecified, multicast
+// addresses, "localhost" and cluster/LAN-only names). A destination makes the
+// bridge open a connection to the host, so without this check the admin API
+// would be a way to reach internal services. It cannot see through DNS: a
+// public name resolving to a private address needs an egress network policy.
+func CheckPublicHost(host string) error {
+	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	if host == "" {
+		return Errorf(CodeBadRequest, "destination host is empty")
+	}
+	if host == "localhost" || !strings.Contains(host, ".") && net.ParseIP(host) == nil {
+		return Errorf(CodeBadRequest, "destination host %q is not a public name", host)
+	}
+	for _, suffix := range internalSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return Errorf(CodeBadRequest, "destination host %q is an internal name", host)
+		}
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return nil // a name; DNS is the egress policy's job
+	}
+	addr = addr.Unmap()
+	cgnat := netip.MustParsePrefix("100.64.0.0/10")
+	if addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
+		addr.IsMulticast() || addr.IsUnspecified() || cgnat.Contains(addr) {
+		return Errorf(CodeBadRequest, "destination host %s is not a public address", addr)
+	}
+	return nil
+}
+
+// Hostname is the host of the destination URL without the port.
+func (d Destination) Hostname() string {
+	u, err := url.Parse(d.URL)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // PublishURL is the full ingest URL (url + "/" + key) handed to the encoder.

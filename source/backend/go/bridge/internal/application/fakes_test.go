@@ -227,12 +227,20 @@ type fixture struct {
 
 func newFixture(t *testing.T, dev bool) *fixture {
 	t.Helper()
+	// Most tests publish to a local sink; the public-host rule has its own tests.
+	return newFixtureWith(t, Config{DevMode: dev, AllowPrivateDestinations: true})
+}
+
+// newFixtureWith builds the fixture around a custom hub configuration.
+func newFixtureWith(t *testing.T, cfg Config) *fixture {
+	t.Helper()
 	signer, err := domain.NewInviteSigner([]byte(strings.Repeat("k", 32)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	clock, sfu := newFakeClock(), newFakeSFU()
-	hub := NewHub(Config{DevMode: dev, Profile: domain.DefaultProfile, WebRelayURL: "https://relay.example"}, clock, signer, sfu, quiet)
+	cfg.Profile, cfg.WebRelayURL = domain.DefaultProfile, "https://relay.example"
+	hub := NewHub(cfg, clock, signer, sfu, quiet)
 	return &fixture{clock: clock, sfu: sfu, hub: hub, signer: signer}
 }
 

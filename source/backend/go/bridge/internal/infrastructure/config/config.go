@@ -17,6 +17,10 @@ import (
 	"github.com/rafex/ether-streaming-culerin/source/backend/go/bridge/internal/domain"
 )
 
+// MinAdminTokenLength is the shortest admin token accepted outside development
+// mode; it guards every room, invitation and stream key.
+const MinAdminTokenLength = 32
+
 // Config is the whole bridge configuration.
 type Config struct {
 	Addr           string
@@ -39,6 +43,14 @@ type Config struct {
 	RTPPortMin     int
 	RTPPortMax     int
 	LogLevel       slog.Level
+	// TrustedProxyHops is how many reverse proxies append to X-Forwarded-For.
+	TrustedProxyHops int
+	// MaxRooms and MaxDestinations cap what the admin API can allocate.
+	MaxRooms        int
+	MaxDestinations int
+	// AllowPrivateDestinations permits RTMP destinations on loopback/private
+	// hosts; it defaults to DevMode (local sinks), never on in production.
+	AllowPrivateDestinations bool
 	// Generated is true for values invented because they were missing in
 	// development mode (they are logged so the developer can use them).
 	GeneratedAdminToken bool
@@ -76,6 +88,10 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.RTPPortMax-cfg.RTPPortMin < 16 {
 		fail("BRIDGE_RTP_PORT_MAX must be at least BRIDGE_RTP_PORT_MIN+16")
 	}
+	cfg.TrustedProxyHops = parseInt(env("BRIDGE_TRUSTED_PROXY_HOPS", "0"), fail, "BRIDGE_TRUSTED_PROXY_HOPS", 0, 5)
+	cfg.MaxRooms = parseInt(env("BRIDGE_MAX_ROOMS", "50"), fail, "BRIDGE_MAX_ROOMS", 1, 1000)
+	cfg.MaxDestinations = parseInt(env("BRIDGE_MAX_DESTINATIONS", "8"), fail, "BRIDGE_MAX_DESTINATIONS", 1, 50)
+	cfg.AllowPrivateDestinations = parseBool(env("BRIDGE_ALLOW_PRIVATE_DESTINATIONS", strconv.FormatBool(cfg.DevMode)), fail, "BRIDGE_ALLOW_PRIVATE_DESTINATIONS")
 	cfg.ICEPublicIPs = splitList(env("BRIDGE_ICE_PUBLIC_IPS", ""))
 	cfg.AllowedOrigins = splitList(env("BRIDGE_ALLOWED_ORIGINS", "localhost:*,127.0.0.1:*"))
 
@@ -128,8 +144,8 @@ func Load(getenv func(string) string) (Config, error) {
 		fail("BRIDGE_INVITE_SECRET is required (>= %d characters) unless BRIDGE_DEV_MODE=true", domain.MinInviteSecretLength)
 	}
 	switch {
-	case cfg.AdminToken != "" && len(cfg.AdminToken) < 16 && !cfg.DevMode:
-		fail("BRIDGE_ADMIN_TOKEN must have at least 16 characters")
+	case cfg.AdminToken != "" && len(cfg.AdminToken) < MinAdminTokenLength && !cfg.DevMode:
+		fail("BRIDGE_ADMIN_TOKEN must have at least %d characters (try: openssl rand -base64 32)", MinAdminTokenLength)
 	case cfg.AdminToken == "" && cfg.DevMode:
 		cfg.AdminToken, cfg.GeneratedAdminToken = "dev", true
 	case cfg.AdminToken == "":

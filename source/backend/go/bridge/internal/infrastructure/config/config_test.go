@@ -27,7 +27,8 @@ func TestProductionRequiresSecrets(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	cfg, err := Load(env(map[string]string{
-		"BRIDGE_INVITE_SECRET": strings.Repeat("s", 32), "BRIDGE_ADMIN_TOKEN": strings.Repeat("a", 24),
+		"BRIDGE_INVITE_SECRET": strings.Repeat("s", 32), "BRIDGE_ADMIN_TOKEN": strings.Repeat("a", 32),
+		"BRIDGE_TRUSTED_PROXY_HOPS": "2", "BRIDGE_MAX_ROOMS": "10",
 		"BRIDGE_WEBRELAY_URL": "https://relay.example/", "BRIDGE_ICE_PUBLIC_IPS": "203.0.113.7, 198.51.100.2",
 		"BRIDGE_ICE_SERVERS": `[{"urls":["stun:stun.example:3478"]}]`, "BRIDGE_LOG_LEVEL": "debug",
 		"BRIDGE_PROFILE": `{"width":640,"height":360}`, "BRIDGE_OUTPUT": `{"videoBitrate":6000000}`,
@@ -38,22 +39,26 @@ func TestProductionRequiresSecrets(t *testing.T) {
 	}
 	if cfg.WebRelayURL != "https://relay.example" || len(cfg.ICEPublicIPs) != 2 || cfg.IceServers[0].URLs[0] != "stun:stun.example:3478" ||
 		cfg.Profile.Width != 640 || cfg.Profile.Framerate != 30 || cfg.Output.VideoBitrate != 6_000_000 || cfg.ICEUDPPort != 8443 ||
-		cfg.LogLevel != slog.LevelDebug || cfg.AllowedOrigins[0] != "relay.example" {
+		cfg.LogLevel != slog.LevelDebug || cfg.AllowedOrigins[0] != "relay.example" ||
+		cfg.TrustedProxyHops != 2 || cfg.MaxRooms != 10 || cfg.MaxDestinations != 8 || cfg.AllowPrivateDestinations {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }
 
 func TestInvalidValues(t *testing.T) {
 	for key, value := range map[string]string{
-		"BRIDGE_DEV_MODE":      "maybe",
-		"BRIDGE_INVITE_SECRET": "short",
-		"BRIDGE_ICE_UDP_PORT":  "70000",
-		"BRIDGE_INVITE_TTL":    "-1h",
-		"BRIDGE_LOG_LEVEL":     "loud",
-		"BRIDGE_ICE_SERVERS":   "{",
-		"BRIDGE_PROFILE":       `{"framerate":0}`,
-		"BRIDGE_OUTPUT":        `{"width":1281}`,
-		"BRIDGE_RTP_PORT_MAX":  "40001",
+		"BRIDGE_DEV_MODE":                   "maybe",
+		"BRIDGE_INVITE_SECRET":              "short",
+		"BRIDGE_ICE_UDP_PORT":               "70000",
+		"BRIDGE_INVITE_TTL":                 "-1h",
+		"BRIDGE_LOG_LEVEL":                  "loud",
+		"BRIDGE_ICE_SERVERS":                "{",
+		"BRIDGE_PROFILE":                    `{"framerate":0}`,
+		"BRIDGE_OUTPUT":                     `{"width":1281}`,
+		"BRIDGE_RTP_PORT_MAX":               "40001",
+		"BRIDGE_TRUSTED_PROXY_HOPS":         "9",
+		"BRIDGE_MAX_ROOMS":                  "0",
+		"BRIDGE_ALLOW_PRIVATE_DESTINATIONS": "sometimes",
 	} {
 		vars := map[string]string{"BRIDGE_DEV_MODE": "true", key: value}
 		if _, err := Load(env(vars)); err == nil || !strings.Contains(err.Error(), strings.SplitN(key, "_", 2)[0]) {
@@ -62,5 +67,19 @@ func TestInvalidValues(t *testing.T) {
 	}
 	if _, err := Load(env(map[string]string{"BRIDGE_INVITE_SECRET": strings.Repeat("s", 32), "BRIDGE_ADMIN_TOKEN": "short"})); err == nil {
 		t.Fatal("short admin token accepted outside dev mode")
+	}
+	if _, err := Load(env(map[string]string{"BRIDGE_INVITE_SECRET": strings.Repeat("s", 32), "BRIDGE_ADMIN_TOKEN": strings.Repeat("a", 31)})); err == nil {
+		t.Fatal("a 31-character admin token accepted outside dev mode")
+	}
+}
+
+func TestPrivateDestinationsDefaultToDevMode(t *testing.T) {
+	dev, _ := Load(env(map[string]string{"BRIDGE_DEV_MODE": "true"}))
+	prod, err := Load(env(map[string]string{"BRIDGE_INVITE_SECRET": strings.Repeat("s", 32), "BRIDGE_ADMIN_TOKEN": strings.Repeat("a", 32)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dev.AllowPrivateDestinations || prod.AllowPrivateDestinations {
+		t.Fatalf("dev=%v prod=%v", dev.AllowPrivateDestinations, prod.AllowPrivateDestinations)
 	}
 }

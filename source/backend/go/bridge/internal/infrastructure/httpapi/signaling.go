@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -26,6 +28,20 @@ const (
 
 // signal upgrades to the signaling v2 WebSocket and runs a Session.
 func (s *Server) signal(w http.ResponseWriter, r *http.Request) {
+	client := s.client(r)
+	if client != "" {
+		if !s.signalRate.allow(client) {
+			w.Header().Set("Retry-After", strconv.Itoa(int(s.signalRate.retryAfter(client).Seconds())+1))
+			http.Error(w, "too many connections", http.StatusTooManyRequests)
+			return
+		}
+		release, ok := s.signalConns.acquire(client)
+		if !ok {
+			http.Error(w, "too many open connections", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
+	}
 	if !offersSubprotocol(r, domain.SignalingSubprotocol) {
 		http.Error(w, "subprotocol "+domain.SignalingSubprotocol+" required", http.StatusBadRequest)
 		return
@@ -42,10 +58,22 @@ func (s *Server) signal(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	conn := &wsConn{ws: c, out: make(chan outgoing, sendQueue), cancel: cancel}
-	log := s.log.With("remote", r.RemoteAddr)
+	log := s.log.With("remote", r.RemoteAddr, "client", client)
 	session := application.NewSession(s.hub, conn, log)
 	go conn.writeLoop(ctx)
 
+	budget := newMessageBudget(s.clock(), s.messageBurst)
+	// Until a valid invitation is shown the socket is anonymous: close it with
+	// a reason instead of letting it idle for the whole idleTimeout. (This is a
+	// timer, not a read deadline: an expired read context tears the connection
+	// down without a close frame.)
+	var admitted atomic.Bool
+	anonymous := time.AfterFunc(s.admitDeadline, func() {
+		if !admitted.Load() {
+			conn.Close(4408, "invitation required")
+		}
+	})
+	defer anonymous.Stop()
 	for {
 		readCtx, done := context.WithTimeout(ctx, idleTimeout)
 		kind, data, err := c.Read(readCtx)
@@ -56,7 +84,15 @@ func (s *Server) signal(w http.ResponseWriter, r *http.Request) {
 		if kind != websocket.MessageText {
 			continue
 		}
+		if !budget.allow(s.clock()) {
+			log.Warn("signaling rate limit exceeded; closing")
+			conn.Close(int(websocket.StatusPolicyViolation), "rate limit")
+			break
+		}
 		session.Handle(data)
+		if session.Admitted() {
+			admitted.Store(true)
+		}
 	}
 	session.Closed()
 	conn.Close(int(websocket.StatusNormalClosure), "")
