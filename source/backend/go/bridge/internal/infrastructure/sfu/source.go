@@ -16,7 +16,7 @@ import (
 )
 
 // keyframeInterval rate-limits PLIs sent to a publisher.
-const keyframeInterval = 200 * time.Millisecond
+const keyframeInterval = 80 * time.Millisecond
 
 // source is one published track: a reader on the publisher's connection
 // fanning out to a shared local track (bound to every subscriber) and to

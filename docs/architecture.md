@@ -69,7 +69,7 @@ sequenceDiagram
   del compositor. Las extensiones de cabecera se descartan: sus ids se
   negociaron en la conexión de publicación.
 - PLI/FIR de los suscriptores se reenvían al emisor (limitados a uno cada
-  200 ms).
+  80 ms).
 - Códecs: Opus, VP8 y H.264 (los que todo navegador y FFmpeg manejan).
 
 ## Concurrencia
