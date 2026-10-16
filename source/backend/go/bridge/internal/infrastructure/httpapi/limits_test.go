@@ -174,9 +174,8 @@ func TestSignalMessageFloodIsCutOff(t *testing.T) {
 func TestSecurityHeadersEverywhere(t *testing.T) {
 	srv := tunedServer(t, nil)
 	for _, path := range []string{"/healthz", "/api/v1/rooms", "/console/"} {
-		req, _ := http.NewRequest("GET", srv.URL+path, nil)
-		req.Header.Set("X-Forwarded-Proto", "https")
-		resp, err := http.DefaultClient.Do(req)
+		// No X-Forwarded-Proto: behind the ingress the bridge never learns the scheme.
+		resp, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -192,15 +191,6 @@ func TestSecurityHeadersEverywhere(t *testing.T) {
 				t.Errorf("%s %s = %q, want %q", path, header, got, want)
 			}
 		}
-	}
-	// Plain HTTP must not claim HSTS.
-	resp, err := http.Get(srv.URL + "/healthz")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.Header.Get("Strict-Transport-Security") != "" {
-		t.Error("HSTS sent over plain HTTP")
 	}
 	console, _ := http.Get(srv.URL + "/console/")
 	console.Body.Close()

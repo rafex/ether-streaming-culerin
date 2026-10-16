@@ -227,9 +227,10 @@ func readJSON(r *http.Request, into any) error {
 	return nil
 }
 
-// securityHeaders sets the headers every response should carry. HSTS is only
-// meaningful over HTTPS, which the reverse proxy terminates: the bridge sees
-// plain HTTP and learns about it from X-Forwarded-Proto.
+// securityHeaders sets the headers every response should carry. HSTS is sent on
+// every response: TLS ends at a reverse proxy that does not say so (behind the
+// ingress the bridge never sees X-Forwarded-Proto: https), and browsers ignore the
+// header when it arrives over plain HTTP (RFC 6797 §8.1), so it is harmless there.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -238,9 +239,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
-		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		}
+		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		next.ServeHTTP(w, r)
 	})
 }
