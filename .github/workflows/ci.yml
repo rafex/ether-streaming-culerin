@@ -48,6 +48,21 @@ jobs:
       - name: govulncheck
         run: make vuln
 
+  # Trivy sobre la imagen que se despliega: paquetes de Debian y dependencias del binario Go.
+  # Aparte de build-test (una CVE nueva no debe tumbar una compilación que no cambió);
+  # también corre cada lunes. Falla solo por HIGH/CRITICAL que ya tienen corrección.
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Build bridge image
+        run: make app-image
+
+      - name: Trivy
+        run: make scan
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25

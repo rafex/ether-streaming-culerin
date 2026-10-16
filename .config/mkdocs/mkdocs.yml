@@ -32,6 +32,7 @@ nav:
       - lint: man_lint.md
       - format: man_format.md
       - vuln: man_vuln.md
+      - scan: man_scan.md
       - e2e: man_e2e.md
       - clean: man_clean.md
       - docs: man_docs.md
