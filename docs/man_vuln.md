@@ -13,7 +13,7 @@ make man TARGET=vuln
 
 ## Descripción
 
-Delega en `go.sh --goal vuln`: ejecuta `govulncheck` (versión fijada) sobre el
+Delega en `go.sh --goal vuln`: ejecuta `govulncheck` (v1.7.0 fijada; la 1.1.4 se cae con un pánico al analizar para Linux) sobre el
 módulo. Falla solo si el código **llama** a una función vulnerable de una
 dependencia; las de módulos que no se usan se listan pero no fallan. La
 solución habitual es `go get <módulo>@<versión corregida> && go mod tidy`.

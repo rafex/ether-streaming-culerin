@@ -91,7 +91,7 @@ lint() {
 # govulncheck (versión fijada): falla solo con vulnerabilidades conocidas que el
 # código SÍ alcanza, no con las de módulos que no se llaman.
 vuln() {
-	go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+	go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 	success "sin vulnerabilidades alcanzables"
 }
 
