@@ -48,12 +48,26 @@ const (
 	MaxCapacity     = 16
 )
 
+// AdmissionMode says how a guest with a valid invitation gets in.
+type AdmissionMode string
+
+const (
+	// AdmissionOpen seats guests as soon as they join (the default).
+	AdmissionOpen AdmissionMode = "open"
+	// AdmissionApproval parks guests in a waiting room until the host admits them.
+	AdmissionApproval AdmissionMode = "approval"
+)
+
+// Valid reports whether m is a known mode.
+func (m AdmissionMode) Valid() bool { return m == AdmissionOpen || m == AdmissionApproval }
+
 // RoomSettings is what the host edits.
 type RoomSettings struct {
-	Title    string
-	Host     HostInfo
-	Capacity int
-	Layout   LayoutMode
+	Title     string
+	Host      HostInfo
+	Capacity  int
+	Layout    LayoutMode
+	Admission AdmissionMode
 }
 
 // Validate normalises and checks the settings.
@@ -77,6 +91,12 @@ func (s *RoomSettings) Validate() error {
 	}
 	if s.Capacity < 1 || s.Capacity > MaxCapacity {
 		return Errorf(CodeBadRequest, "capacity must be in [1, %d]", MaxCapacity)
+	}
+	if s.Admission == "" {
+		s.Admission = AdmissionOpen
+	}
+	if !s.Admission.Valid() {
+		return Errorf(CodeBadRequest, "admission %q is not open|approval", s.Admission)
 	}
 	if s.Layout == "" {
 		s.Layout = LayoutAuto

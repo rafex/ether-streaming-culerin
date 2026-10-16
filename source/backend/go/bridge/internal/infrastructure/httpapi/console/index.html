@@ -98,6 +98,22 @@
         </div>
 
         <div class="card">
+          <h2>Admisión</h2>
+          <label>Cómo entran los invitados<select id="admission-mode">
+            <option value="open">Abierta: entran en cuanto pulsan «Entrar»</option>
+            <option value="approval">Con aprobación: esperan a que los admitas</option>
+          </select></label>
+          <div id="waiting-box" hidden>
+            <h3>En espera <span id="waiting-count" class="muted"></span></h3>
+            <table class="table">
+              <thead><tr><th>Nombre</th><th>Espera desde</th><th></th></tr></thead>
+              <tbody id="waiting"></tbody>
+            </table>
+          </div>
+          <p id="no-waiting" class="muted small">Nadie espera.</p>
+        </div>
+
+        <div class="card">
           <h2>Participantes <span id="participant-count" class="muted"></span></h2>
           <table class="table">
             <thead><tr><th>Nombre</th><th>Estado</th><th>Publica</th><th>En escena</th><th></th></tr></thead>

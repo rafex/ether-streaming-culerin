@@ -16,9 +16,9 @@ devuelven completas.
 |---------------|--------|-----------|
 | `GET /config` | — | `{devMode, webrelayUrl, output}` |
 | `GET /rooms` | — | `{rooms: [Room]}` (más recientes primero) |
-| `POST /rooms` | `{id?, title, host: {name, avatar?}, capacity?, layout?}` | 201 `Room` (id aleatorio si se omite) |
+| `POST /rooms` | `{id?, title, host: {name, avatar?}, capacity?, layout?, admission?}` | 201 `Room` (id aleatorio si se omite) |
 | `GET /rooms/{room}` | — | `Room` |
-| `PATCH /rooms/{room}` | `{title?, host?: {name?, avatar?}, capacity?, layout?}` | `Room` |
+| `PATCH /rooms/{room}` | `{title?, host?: {name?, avatar?}, capacity?, layout?, admission?}` | `Room` |
 | `DELETE /rooms/{room}` | — | 204; cierra la sala: expulsa (`room-closed`) e invalida las invitaciones |
 | `POST /rooms/{room}/invites` | `{ttlSeconds?, maxUses?}` | 201 `{id, token, url, expiresAt, maxUses}`. `maxUses` 0–1000 (0: sin límite) |
 | `GET /rooms/{room}/invites` | — | 200 lista `{id, createdAt, expiresAt, maxUses, uses, revoked, expired, active}`, la más nueva primero. **Nunca incluye el token ni el enlace** |
@@ -30,6 +30,8 @@ devuelven completas.
 | `POST /rooms/{room}/broadcast/stop` | — | `Room` |
 | `GET /rooms/{room}/layout` | — | `CompositionPlan` actual (también fuera del aire) |
 | `PATCH /rooms/{room}/participants/{id}` | `{onStage}` | `Room` |
+| `POST /rooms/{room}/waiting/{id}/admit` | — | 204; el invitado en espera recibe `admitted` y entra (404 si ya no está) |
+| `POST /rooms/{room}/waiting/{id}/deny` | — | 204; el invitado recibe el error fatal `denied` y se le cierra el socket |
 | `DELETE /rooms/{room}/participants/{id}` | — | 204; el invitado recibe `kicked` |
 
 Públicos: `GET /healthz` y `GET /signal` (señalización v2).
@@ -59,6 +61,15 @@ Públicos: `GET /healthz` y `GET /signal` (señalización v2).
   columna), `grid` (siempre mosaico), `speaker` (el primero en escena en foco).
 - `kind`: `youtube`, `twitch`, `facebook`, `custom` (se deduce del host si se
   omite). Es lo que el lobby muestra como "canales".
+- **Admisión** (`admission`): `open` (por defecto) sienta al invitado en cuanto
+  pulsa «Entrar»; `approval` lo deja en una **sala de espera** (sin sitio, sin
+  sesión de medios, sin presencia para los demás y sin contar para la
+  capacidad) hasta que el anfitrión lo admite o lo deniega. `Room.waiting` lista
+  `{id, name, title, since, admitted}`. Máximo 20 en espera por sala; sin
+  respuesta en 5 min el invitado recibe `denied`; uno admitido que no vuelve en
+  30 s se olvida. Pasar la sala a `open` admite a todos los que esperan. Cerrarla
+  los despide con `room-closed`. El uso de una invitación se cuenta al sentarse,
+  no al esperar.
 - Una invitación es un token firmado (HMAC) que lleva la sala, la caducidad y el
   **id** de un registro que el puente guarda en memoria. La firma prueba que el
   puente la emitió; que siga valiendo lo decide el registro: no revocada, no

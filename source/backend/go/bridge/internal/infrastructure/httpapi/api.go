@@ -41,6 +41,8 @@ type roomBody struct {
 	Host     *hostBody          `json:"host"`
 	Capacity *int               `json:"capacity"`
 	Layout   *domain.LayoutMode `json:"layout"`
+	// Admission is "open" (guests are seated at once) or "approval" (they wait for the host).
+	Admission *domain.AdmissionMode `json:"admission"`
 }
 
 func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +67,9 @@ func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
 	if body.Layout != nil {
 		settings.Layout = *body.Layout
 	}
+	if body.Admission != nil {
+		settings.Admission = *body.Admission
+	}
 	view, err := s.hub.CreateRoom(domain.RoomID(body.ID), settings)
 	if err != nil {
 		writeError(w, err)
@@ -88,7 +93,7 @@ func (s *Server) updateRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	patch := application.RoomPatch{Title: body.Title, Capacity: body.Capacity, Layout: body.Layout}
+	patch := application.RoomPatch{Title: body.Title, Capacity: body.Capacity, Layout: body.Layout, Admission: body.Admission}
 	if body.Host != nil {
 		patch.HostName, patch.HostAvatar = body.Host.Name, body.Host.Avatar
 	}
@@ -139,6 +144,22 @@ func (s *Server) listInvites(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) revokeInvite(w http.ResponseWriter, r *http.Request) {
 	if err := s.hub.RevokeInvite(roomID(r), r.PathValue("invite")); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) admitGuest(w http.ResponseWriter, r *http.Request) {
+	if err := s.hub.Admit(roomID(r), r.PathValue("guest")); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) denyGuest(w http.ResponseWriter, r *http.Request) {
+	if err := s.hub.Deny(roomID(r), r.PathValue("guest")); err != nil {
 		writeError(w, err)
 		return
 	}

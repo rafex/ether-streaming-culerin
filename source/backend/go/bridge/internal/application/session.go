@@ -12,6 +12,7 @@ import (
 var closeCodes = map[domain.ErrorCode]int{
 	domain.CodeInvalidToken: 4401,
 	domain.CodeKicked:       4403,
+	domain.CodeDenied:       4405,
 	domain.CodeRoomNotFound: 4404,
 	domain.CodeRoomClosed:   4410,
 	domain.CodeRoomFull:     4429,
@@ -21,14 +22,15 @@ var closeCodes = map[domain.ErrorCode]int{
 // room.peek → join → media negotiation → leave. Handle is called
 // sequentially, in arrival order, by the transport adapter.
 type Session struct {
-	hub    *Hub
-	conn   ports.Connection
-	log    *slog.Logger
-	room   domain.RoomID
-	peeked bool
-	invite string // id of the invitation shown at room.peek ("" in development mode)
-	self   *ParticipantRef
-	peer   ports.MediaPeer
+	hub     *Hub
+	conn    ports.Connection
+	log     *slog.Logger
+	room    domain.RoomID
+	peeked  bool
+	invite  string // id of the invitation shown at room.peek ("" in development mode)
+	waiting string // waiting-room entry, while the host has not admitted this guest
+	self    *ParticipantRef
+	peer    ports.MediaPeer
 }
 
 // NewSession starts a session for a freshly accepted socket.
@@ -88,6 +90,10 @@ func (s *Session) Handle(data []byte) {
 			s.fail(asDomainError(err))
 		}
 	case domain.LeaveMessage:
+		if s.waiting != "" {
+			s.hub.WaitingGone(s.room, s.waiting, s.conn)
+			s.waiting = ""
+		}
 		if s.self != nil {
 			s.hub.Leave(*s.self)
 		}
@@ -100,6 +106,9 @@ func (s *Session) Handle(data []byte) {
 // Closed is called once when the socket ends; a joined participant keeps its
 // place for the resume grace period.
 func (s *Session) Closed() {
+	if s.waiting != "" {
+		s.hub.WaitingGone(s.room, s.waiting, s.conn)
+	}
 	if s.self != nil {
 		s.hub.Disconnected(*s.self, s.conn)
 	}
@@ -126,11 +135,19 @@ func (s *Session) join(m domain.JoinMessage) {
 	if s.self != nil {
 		return
 	}
+	if s.waiting != "" && m.Admit == "" {
+		return // already in the waiting room; the host's answer will come
+	}
 	result, err := s.hub.Join(s.room, s.conn, m, s.invite)
 	if err != nil {
 		s.fail(asDomainError(err))
 		return
 	}
+	if result.Waiting != "" {
+		s.waiting = result.Waiting
+		return
+	}
+	s.waiting = ""
 	s.self, s.peer = &result.Self, result.Peer
 }
 

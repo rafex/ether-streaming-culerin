@@ -94,6 +94,8 @@ type (
 		Audio  bool
 		Video  bool
 		Resume ParticipantID
+		// Admit is the one-time token a waiting guest got in `admitted`.
+		Admit string
 		// ResumeToken is the secret the welcome handed out with the participant
 		// id; without it a resume is ignored (ids are sequential and public).
 		ResumeToken string
@@ -132,6 +134,7 @@ type rawClientMessage struct {
 	Media     *struct{ Audio, Video bool } `json:"media"`
 	Resume    string                       `json:"resume"`
 	ResumeTok string                       `json:"resumeToken"`
+	Admit     string                       `json:"admit"`
 	SDP       string                       `json:"sdp"`
 	Sources   map[string]string            `json:"sources"`
 	PC        string                       `json:"pc"`
@@ -175,7 +178,10 @@ func ParseClientMessage(data []byte) (ClientMessage, error) {
 		if len(raw.ResumeTok) > 256 {
 			return nil, fmt.Errorf("join.resumeToken too long")
 		}
-		msg := JoinMessage{Name: name, Title: title, Resume: ParticipantID(raw.Resume), ResumeToken: raw.ResumeTok}
+		if len(raw.Admit) > 256 {
+			return nil, fmt.Errorf("join.admit too long")
+		}
+		msg := JoinMessage{Name: name, Title: title, Resume: ParticipantID(raw.Resume), ResumeToken: raw.ResumeTok, Admit: raw.Admit}
 		if raw.Media != nil {
 			msg.Audio, msg.Video = raw.Media.Audio, raw.Media.Video
 		}
@@ -313,6 +319,19 @@ type PongMessage struct {
 	T    float64 `json:"t"`
 }
 
+// WaitingMessage tells a guest that the host has to admit them before they
+// get a seat.
+type WaitingMessage struct {
+	Type string `json:"type"`
+}
+
+// AdmittedMessage tells a waiting guest the host let them in: the client sends
+// `join` again with this token.
+type AdmittedMessage struct {
+	Type  string `json:"type"`
+	Token string `json:"token"`
+}
+
 type ErrorMessage struct {
 	Type    string    `json:"type"`
 	Code    ErrorCode `json:"code"`
@@ -330,6 +349,8 @@ func (m ParticipantLeftMessage) MessageType() string { return m.Type }
 func (m ProfileMessage) MessageType() string         { return m.Type }
 func (m PongMessage) MessageType() string            { return m.Type }
 func (m ErrorMessage) MessageType() string           { return m.Type }
+func (m WaitingMessage) MessageType() string         { return m.Type }
+func (m AdmittedMessage) MessageType() string        { return m.Type }
 
 // Constructors fill the `type` field so callers cannot get it wrong.
 
@@ -375,6 +396,12 @@ func NewParticipantLeft(id ParticipantID) ParticipantLeftMessage {
 
 func NewProfile(p QualityProfile) ProfileMessage { return ProfileMessage{Type: "profile", Profile: p} }
 func NewPong(t float64) PongMessage              { return PongMessage{Type: "pong", T: t} }
+
+func NewWaiting() WaitingMessage { return WaitingMessage{Type: "waiting"} }
+
+func NewAdmitted(token string) AdmittedMessage {
+	return AdmittedMessage{Type: "admitted", Token: token}
+}
 
 func NewError(err *Error) ErrorMessage {
 	return ErrorMessage{Type: "error", Code: err.Code, Message: err.Message, Fatal: err.Fatal}

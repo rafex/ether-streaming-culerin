@@ -25,12 +25,22 @@ aquí solo se documenta cómo lo implementa el puente.
 | `room-not-found` | 4404 |
 | `room-closed` | 4410 |
 | `room-full` | 4429 |
+| `denied` | 4405 |
 
 - `welcome` se envía **antes** de cualquier mensaje del SFU (`tracks`,
   `subscribe.offer`, `ice`) e incluye al propio participante.
 - El SFU nunca envía un `subscribe.offer` sin secciones de medios; envía
   `tracks` justo antes de cada oferta y pide un keyframe (PLI) a los emisores
   200 ms después de cada respuesta.
+- **Sala de espera** (`admission: "approval"`): tras `join` el puente responde
+  `waiting` en lugar de `welcome` y el invitado no tiene sitio. Cuando el
+  anfitrión lo admite le envía `admitted {token}` (16 bytes aleatorios, de un
+  solo uso y válido solo para ese socket); el cliente repite `join` con
+  `admit: <token>` y sigue el flujo normal (`welcome`…). Si el anfitrión lo
+  deniega, o no responde en 5 min, llega el error fatal `denied` (cierre 4405).
+  Un `join` con un `admit` que no corresponde se rechaza con `denied`. Una
+  reanudación (`resume` + `resumeToken`) no pasa por la sala de espera. Si el
+  socket cae mientras espera, se pierde el turno: al reconectar vuelve a esperar.
 - **Reanudación**: si cae el socket, el participante conserva su sitio y sus
   conexiones WebRTC durante 20 s. `join {resume}` lo recupera (`welcome
   {resumed: true}`) y el puente vuelve a ofrecer `subscribe` (con ICE restart
