@@ -11,7 +11,7 @@ source "$SCRIPT_DIR/lib/messages.sh"
 # Stack (regla 08): Podman primero, Docker con warning; Containerfile, nunca Dockerfile.
 #
 # Contrato de flags (regla 01):
-#   --action runtime|image|ci|app-image|app-run|app-stop|app-logs|mediamtx-up|mediamtx-down
+#   --action runtime|image|ci|app-image|scan|app-run|app-stop|app-logs|mediamtx-up|mediamtx-down
 #   --project-name ether-streaming-culerin
 #   --container-runtime podman|docker   Sobreescribe la detección
 #   --ci-image / --ci-containerfile     Imagen de CI (toolchain Go + FFmpeg)
@@ -47,6 +47,8 @@ network="ether"
 mediamtx_name="ether-mediamtx"
 # MediaMTX 1.21.1 (publicada el 2026-09-20), fijada por digest.
 mediamtx_image="docker.io/bluenviron/mediamtx:1.21.1@sha256:5ce2a948eb68df06ce2e13870db8df8e30d516ac4dc40e04bfe8aee3bdf7be40"
+# Trivy 0.74.0 (publicada el 2026-08-14), por tag: la base de vulnerabilidades se descarga al ejecutar.
+trivy_image="docker.io/aquasec/trivy:0.74.0"
 man="false"
 WORKSPACE="${WORKSPACE:-$(pwd)}"
 
@@ -150,6 +152,18 @@ case "$action" in
 		;;
 	app-image)
 		build_image "$app_containerfile" "$app_image"
+		;;
+	scan)
+		# Escanea la imagen del puente con Trivy: falla con HIGH/CRITICAL que ya tengan corrección
+		# (lo que no se puede arreglar todavía no debe bloquear). Reconstruye antes si no existe.
+		"$runtime" image exists "$app_image" 2>/dev/null || build_image "$app_containerfile" "$app_image"
+		scan_dir="$(mktemp -d)"
+		trap 'rm -rf "$scan_dir"' EXIT
+		log_info "Scanning $app_image with $trivy_image"
+		"$runtime" save -o "$scan_dir/image.tar" "$app_image"
+		"$runtime" run --rm -v "$scan_dir:/scan:ro" -v ether-bridge-trivy:/root/.cache "$trivy_image" \
+			image --input /scan/image.tar --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
+		success "sin vulnerabilidades HIGH/CRITICAL corregibles en $app_image"
 		;;
 	app-run)
 		build_image "$app_containerfile" "$app_image"

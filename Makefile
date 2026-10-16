@@ -39,6 +39,7 @@ help:
 	@echo "  make image             - Imagen de CI (containers/ci/Containerfile)"
 	@echo "  make ci                - install + lint + build + coverage en contenedor"
 	@echo "  make app-image         - Imagen del puente (containers/bridge/Containerfile)"
+	@echo "  make scan              - Trivy sobre la imagen del puente (HIGH/CRITICAL corregibles)"
 	@echo ""
 	@echo "  make pre-commit | pre-push   - Gates de git hooks"
 	@echo "  make man TARGET=<tarea>      - Manual (docs/man_<tarea>.md)"

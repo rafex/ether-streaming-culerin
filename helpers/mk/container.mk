@@ -1,5 +1,5 @@
 # Targets de contenedor (reglas 06 y 08): podman → docker, Containerfile.
-.PHONY: runtime image ci app-image
+.PHONY: runtime image ci app-image scan
 
 CONTAINER_HELPER ?= helpers/shell/container.sh
 CONTAINER_RUNTIME ?=
@@ -13,5 +13,5 @@ CONTAINER_FLAGS = --project-name "$(PROJECT_NAME)" --container-runtime "$(CONTAI
 	--app-image "$(APP_IMAGE)" --app-containerfile "$(APP_CONTAINERFILE)" \
 	--module "$(MODULE)" --version "$(VERSION)"
 
-runtime image ci app-image:
+runtime image ci app-image scan:
 	@bash "$(CONTAINER_HELPER)" --action "$@" $(CONTAINER_FLAGS)
