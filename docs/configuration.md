@@ -52,7 +52,7 @@ Lo que el puente hace por sí mismo (además de las políticas de red del despli
 | Destinos | Solo `rtmp://` / `rtmps://` con host público: se rechazan IPs de loopback, privadas, link-local, CGNAT, `localhost` y nombres internos (`.svc`, `.cluster.local`, `.local`…). No ve a través de DNS: un nombre público que resuelva a una IP privada lo frena la `NetworkPolicy` de salida del despliegue |
 | Recursos | Máximo de salas y de destinos por sala; invitaciones de hasta 30 días |
 | Servidor HTTP | `ReadHeaderTimeout` 10 s, `IdleTimeout` 120 s, cabeceras ≤ 16 KiB. Sin `ReadTimeout`/`WriteTimeout` a propósito: cortarían los WebSockets |
-| Cabeceras | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener/Resource-Policy: same-origin` en todo; `Strict-Transport-Security` cuando llega `X-Forwarded-Proto: https`; la consola añade CSP y `Permissions-Policy` sin cámara ni micrófono |
+| Cabeceras | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener/Resource-Policy: same-origin` en todo; `Strict-Transport-Security` siempre (el proxy que termina TLS no avisa al puente, y los navegadores lo ignoran sobre HTTP); la consola añade CSP y `Permissions-Policy` sin cámara ni micrófono |
 
 **Detrás de proxies (obligatorio fijarlo).** El puente solo ve la IP del
 último salto. Con el valor por defecto (`BRIDGE_TRUSTED_PROXY_HOPS=0`) todos los
