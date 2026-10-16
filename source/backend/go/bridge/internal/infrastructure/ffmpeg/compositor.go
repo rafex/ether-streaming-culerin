@@ -259,7 +259,7 @@ func (p *pipeline) startComposeLocked() error {
 	go func() {
 		err := splice.feed(gen, proc.stdout, func() { p.takeOver(gen) })
 		if err != nil && !errors.Is(err, errSuperseded) {
-			p.c.log.Warn("splicing compositor output failed", "room", p.room, "err", err)
+			p.c.log.Log(context.Background(), feedFailureLevel(err), "splicing compositor output failed", "room", p.room, "err", err)
 		}
 		proc.kill()
 		exitErr := proc.wait()
@@ -287,6 +287,17 @@ func (p *pipeline) startComposeLocked() error {
 	go p.requestKeyframes(run, gen, inputs)
 	p.c.log.Info("compositor starting", "room", p.room, "run", gen, "tiles", len(p.plan.Tiles), "inputs", len(inputs))
 	return nil
+}
+
+// feedFailureLevel: reading a run's output fails with os.ErrClosed when WE closed its pipe
+// (the run was replaced or the broadcast stopped). That is the normal end of a run, not a
+// problem; anything else (a broken stream, a bad header) still deserves a warning. A run that
+// really died is reported separately by the "compositor exited" path.
+func feedFailureLevel(err error) slog.Level {
+	if errors.Is(err, os.ErrClosed) {
+		return slog.LevelDebug
+	}
+	return slog.LevelWarn
 }
 
 // takeOver is called when run gen publishes its first frame: older runs go.
