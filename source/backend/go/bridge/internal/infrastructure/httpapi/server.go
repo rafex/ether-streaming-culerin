@@ -85,6 +85,8 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("PATCH /api/v1/rooms/{room}", s.updateRoom)
 	api.HandleFunc("DELETE /api/v1/rooms/{room}", s.closeRoom)
 	api.HandleFunc("POST /api/v1/rooms/{room}/invites", s.invite)
+	api.HandleFunc("GET /api/v1/rooms/{room}/invites", s.listInvites)
+	api.HandleFunc("DELETE /api/v1/rooms/{room}/invites/{invite}", s.revokeInvite)
 	api.HandleFunc("POST /api/v1/rooms/{room}/destinations", s.addDestination)
 	api.HandleFunc("PATCH /api/v1/rooms/{room}/destinations/{dest}", s.updateDestination)
 	api.HandleFunc("DELETE /api/v1/rooms/{room}/destinations/{dest}", s.removeDestination)

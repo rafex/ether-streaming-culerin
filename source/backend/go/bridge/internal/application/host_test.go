@@ -45,7 +45,7 @@ func TestHostRoomManagement(t *testing.T) {
 func TestInvitationLinks(t *testing.T) {
 	f := newFixture(t, false)
 	f.createRoom(t, "demo")
-	inv, err := f.hub.Invite("demo", 2*time.Hour)
+	inv, err := f.hub.Invite("demo", 2*time.Hour, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,23 +53,24 @@ func TestInvitationLinks(t *testing.T) {
 	if err != nil || u.Host != "relay.example" || u.Path != "/join/demo" || u.Query().Get("t") != inv.Token {
 		t.Fatalf("invite url = %s", inv.URL)
 	}
-	if err := f.signer.Verify("demo", inv.Token, f.clock.Now().Add(time.Hour)); err != nil {
-		t.Fatalf("issued token invalid: %v", err)
+	claims, err := f.signer.Verify("demo", inv.Token, f.clock.Now().Add(time.Hour))
+	if err != nil || claims.ID != inv.ID || inv.ID == "" {
+		t.Fatalf("issued token invalid or without its id: %+v %v", claims, err)
 	}
 	if !inv.ExpiresAt.Equal(f.clock.Now().Add(2 * time.Hour)) {
 		t.Fatalf("expiry = %s", inv.ExpiresAt)
 	}
-	if def, _ := f.hub.Invite("demo", 0); !def.ExpiresAt.Equal(f.clock.Now().Add(24 * time.Hour)) {
+	if def, _ := f.hub.Invite("demo", 0, 0); !def.ExpiresAt.Equal(f.clock.Now().Add(24 * time.Hour)) {
 		t.Fatalf("default ttl expiry = %s", def.ExpiresAt)
 	}
-	if _, err := f.hub.Invite("demo", 31*24*time.Hour); err == nil {
+	if _, err := f.hub.Invite("demo", 31*24*time.Hour, 0); err == nil {
 		t.Fatal("ttl above 30 days accepted")
 	}
-	if _, err := f.hub.Invite("ghost", time.Hour); err == nil {
+	if _, err := f.hub.Invite("ghost", time.Hour, 0); err == nil {
 		t.Fatal("invite for unknown room")
 	}
 	f.hub.CloseRoom("demo")
-	if _, err := f.hub.Invite("demo", time.Hour); err == nil {
+	if _, err := f.hub.Invite("demo", time.Hour, 0); err == nil {
 		t.Fatal("invite for a closed room")
 	}
 }

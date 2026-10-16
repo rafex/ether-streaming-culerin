@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -281,5 +282,73 @@ func TestLimitsKeyOnTheForwardedClient(t *testing.T) {
 	}
 	if code := send("198.51.100.4", adminToken); code != 200 {
 		t.Fatalf("another client was affected: %d", code)
+	}
+}
+
+func TestInvitationsAPI(t *testing.T) {
+	srv := newServer(t, false)
+	call(t, srv, "POST", "/api/v1/rooms", `{"id":"demo","title":"Demo","host":{"name":"Rafex"}}`, adminToken)
+
+	// Every invitation endpoint needs the admin token.
+	for _, tc := range [][2]string{{"POST", "/api/v1/rooms/demo/invites"}, {"GET", "/api/v1/rooms/demo/invites"}, {"DELETE", "/api/v1/rooms/demo/invites/abc"}} {
+		if code, _ := call(t, srv, tc[0], tc[1], "", ""); code != 401 {
+			t.Errorf("%s %s without a token: %d", tc[0], tc[1], code)
+		}
+	}
+
+	code, inv := call(t, srv, "POST", "/api/v1/rooms/demo/invites", `{"ttlSeconds":3600,"maxUses":3}`, adminToken)
+	if code != 201 || inv["maxUses"] != float64(3) || inv["id"] == "" || inv["token"] == "" {
+		t.Fatalf("create: %d %v", code, inv)
+	}
+	if code, _ := call(t, srv, "POST", "/api/v1/rooms/demo/invites", `{"maxUses":-1}`, adminToken); code != 400 {
+		t.Fatalf("negative maxUses: %d", code)
+	}
+	if code, _ := call(t, srv, "POST", "/api/v1/rooms/demo/invites", `{"bogus":1}`, adminToken); code != 400 {
+		t.Fatalf("unknown field: %d", code)
+	}
+
+	// The list never carries the token or the link.
+	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/rooms/demo/invites", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var list []map[string]any
+	raw, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(raw, &list); err != nil || len(list) != 1 {
+		t.Fatalf("list: %s (%v)", raw, err)
+	}
+	if strings.Contains(string(raw), inv["token"].(string)) || strings.Contains(string(raw), "url") || list[0]["id"] != inv["id"] || list[0]["active"] != true || list[0]["uses"] != float64(0) {
+		t.Fatalf("list leaks or is wrong: %s", raw)
+	}
+
+	id := inv["id"].(string)
+	if code, _ := call(t, srv, "DELETE", "/api/v1/rooms/demo/invites/"+id, "", adminToken); code != 204 {
+		t.Fatalf("revoke: %d", code)
+	}
+	if code, _ := call(t, srv, "DELETE", "/api/v1/rooms/demo/invites/nope", "", adminToken); code != 404 {
+		t.Fatalf("revoke unknown: %d", code)
+	}
+	if code, _ := call(t, srv, "GET", "/api/v1/rooms/ghost/invites", "", adminToken); code != 404 {
+		t.Fatalf("list in an unknown room: %d", code)
+	}
+
+	// The revoked link no longer opens the lobby.
+	token := inv["token"].(string)
+	c, _, err := dial(t, srv, "http://relay.example", domain.SignalingSubprotocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = c.Write(ctx, websocket.MessageText, []byte(`{"type":"room.peek","room":"demo","token":"`+token+`"}`))
+	if _, _, err := c.Read(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Read(ctx); websocket.CloseStatus(err) != 4401 {
+		t.Fatalf("revoked link: %v", err)
 	}
 }

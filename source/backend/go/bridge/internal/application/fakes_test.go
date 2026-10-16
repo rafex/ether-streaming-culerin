@@ -251,8 +251,13 @@ func (f *fixture) createRoom(t *testing.T, id domain.RoomID) {
 	}
 }
 
+// token returns a working invitation for an existing room; for a room that does
+// not exist it forges one with a valid signature (the hub must still refuse it).
 func (f *fixture) token(id domain.RoomID) string {
-	return f.signer.Issue(id, f.clock.Now().Add(time.Hour)).Token
+	if inv, err := f.hub.Invite(id, time.Hour, 0); err == nil {
+		return inv.Token
+	}
+	return f.signer.Issue(id, "ffffffffffffffff", f.clock.Now().Add(time.Hour)).Token
 }
 
 // guest opens a session and joins.

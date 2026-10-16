@@ -61,11 +61,11 @@ func TestRoomsAndDestinationsAreCapped(t *testing.T) {
 func TestDevelopmentRoomsOnDemandAreCapped(t *testing.T) {
 	f := newFixtureWith(t, Config{DevMode: true, MaxRooms: 2})
 	for _, id := range []domain.RoomID{"a", "b"} {
-		if _, err := f.hub.Peek(id, "t"); err != nil {
+		if _, _, err := f.hub.Peek(id, "t"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := f.hub.Peek("c", "t"); err == nil {
+	if _, _, err := f.hub.Peek("c", "t"); err == nil {
 		t.Fatal("a third on-demand room was created past the cap")
 	}
 }

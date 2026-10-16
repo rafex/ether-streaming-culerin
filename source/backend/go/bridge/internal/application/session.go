@@ -26,6 +26,7 @@ type Session struct {
 	log    *slog.Logger
 	room   domain.RoomID
 	peeked bool
+	invite string // id of the invitation shown at room.peek ("" in development mode)
 	self   *ParticipantRef
 	peer   ports.MediaPeer
 }
@@ -108,12 +109,12 @@ func (s *Session) peek(m domain.PeekMessage) {
 	if s.self != nil {
 		return // already in the call; a lobby re-peek is meaningless
 	}
-	info, err := s.hub.Peek(domain.RoomID(m.Room), m.Token)
+	info, invite, err := s.hub.Peek(domain.RoomID(m.Room), m.Token)
 	if err != nil {
 		s.fail(asDomainError(err))
 		return
 	}
-	s.room, s.peeked = domain.RoomID(m.Room), true
+	s.room, s.peeked, s.invite = domain.RoomID(m.Room), true, invite
 	s.conn.Send(info)
 }
 
@@ -125,7 +126,7 @@ func (s *Session) join(m domain.JoinMessage) {
 	if s.self != nil {
 		return
 	}
-	result, err := s.hub.Join(s.room, s.conn, m)
+	result, err := s.hub.Join(s.room, s.conn, m, s.invite)
 	if err != nil {
 		s.fail(asDomainError(err))
 		return

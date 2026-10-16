@@ -118,7 +118,7 @@ async function refreshRooms() {
     if (room) {
       state.room = room;
       renderRoom();
-      await refreshLayout();
+      await Promise.all([refreshLayout(), refreshInvites()]);
     } else {
       selectRoom('');
     }
@@ -158,6 +158,7 @@ function selectRoom(id) {
     fillSettings();
     renderRoom();
     void refreshLayout();
+    void refreshInvites();
   }
 }
 
@@ -267,6 +268,50 @@ function renderDestinations(room) {
   }
 }
 
+async function refreshInvites() {
+  if (!state.room || state.room.closed) {
+    renderInvites([]);
+    return;
+  }
+  try {
+    renderInvites(await api('GET', `/rooms/${state.room.id}/invites`));
+  } catch {
+    /* ignore: the room may have just closed */
+  }
+}
+
+function renderInvites(invites) {
+  const room = state.room;
+  $('#invites').replaceChildren(
+    ...invites.map((inv) => {
+      const status = inv.revoked ? 'Revocada' : inv.expired ? 'Caducada' : inv.active ? 'Activa' : 'Agotada';
+      return el('tr', { class: inv.active ? '' : 'muted' }, [
+        el('td', { class: 'small', text: inv.id.slice(0, 8) }),
+        el('td', { class: 'small', text: new Date(inv.expiresAt).toLocaleString() }),
+        el('td', { class: 'small', text: inv.maxUses ? `${inv.uses} / ${inv.maxUses}` : `${inv.uses}` }),
+        el('td', { class: 'small', text: status }),
+        el('td', {}, [
+          inv.active
+            ? el('button', {
+                type: 'button', class: 'ghost small', text: 'Revocar',
+                onclick: async () => {
+                  if (!confirm('¿Revocar esta invitación? Quien ya esté dentro se queda; nadie más podrá entrar con ese enlace.')) return;
+                  try {
+                    await api('DELETE', `/rooms/${room.id}/invites/${inv.id}`);
+                    await refreshInvites();
+                  } catch (error) {
+                    showError($('#room-error'), error);
+                  }
+                },
+              })
+            : '',
+        ]),
+      ]);
+    }),
+  );
+  $('#no-invites').hidden = invites.length > 0;
+}
+
 async function refreshLayout() {
   if (!state.room || state.room.closed) {
     $('#layout-preview').replaceChildren();
@@ -367,11 +412,12 @@ $('#air-stop').addEventListener('click', () => mutate(`/rooms/${state.selected}/
 $('#invite-create').addEventListener('click', async () => {
   showError($('#room-error'), null);
   try {
-    const invite = await api('POST', `/rooms/${state.selected}/invites`, { ttlSeconds: Number($('#invite-ttl').value) });
+    const invite = await api('POST', `/rooms/${state.selected}/invites`, { ttlSeconds: Number($('#invite-ttl').value), maxUses: Number($('#invite-max').value) || 0 });
     $('#invite-url').value = invite.url;
     $('#invite-expiry').textContent = new Date(invite.expiresAt).toLocaleString();
     $('#invite-result').hidden = false;
     $('#invite-url').select();
+    await refreshInvites();
   } catch (error) {
     showError($('#room-error'), error);
   }

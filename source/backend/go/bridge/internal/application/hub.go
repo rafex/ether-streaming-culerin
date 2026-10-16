@@ -70,6 +70,42 @@ type Hub struct {
 type roomEntry struct {
 	room    *domain.Room
 	members map[domain.ParticipantID]*member
+	invites map[string]*inviteRecord // by invitation id
+}
+
+// inviteRecord is what the bridge remembers about one issued invitation: the
+// token itself is a signed bearer credential, but whether it still works (not
+// revoked, uses left) is decided here.
+type inviteRecord struct {
+	id        string
+	createdAt time.Time
+	expiresAt time.Time
+	maxUses   int // 0: unlimited
+	uses      int
+	revoked   bool
+}
+
+// usable reports why a record cannot admit another guest, or nil.
+func (r *inviteRecord) usable(now time.Time) error {
+	switch {
+	case r.revoked:
+		return domain.Fatalf(domain.CodeInvalidToken, "this invitation was revoked")
+	case !now.Before(r.expiresAt):
+		return domain.Fatalf(domain.CodeInvalidToken, "invitation token is invalid or expired")
+	case r.maxUses > 0 && r.uses >= r.maxUses:
+		return domain.Fatalf(domain.CodeInvalidToken, "this invitation has no uses left")
+	}
+	return nil
+}
+
+// Limits of the invitation registry.
+const (
+	MaxInvitesPerRoom = 100
+	MaxInviteUses     = 1000
+)
+
+func newRoomEntry(room *domain.Room) *roomEntry {
+	return &roomEntry{room: room, members: map[domain.ParticipantID]*member{}, invites: map[string]*inviteRecord{}}
 }
 
 type member struct {
@@ -120,48 +156,63 @@ func (h *Hub) OnChange(fn func(domain.RoomID)) { h.onChange = fn }
 // ---------------------------------------------------------------------------
 
 // Peek validates an invitation and returns what the lobby shows.
-func (h *Hub) Peek(id domain.RoomID, token string) (domain.RoomInfoMessage, error) {
+//
+// It also returns the id of the invitation the token belongs to ("" in
+// development mode), which Join needs to count the use.
+func (h *Hub) Peek(id domain.RoomID, token string) (domain.RoomInfoMessage, string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	var inviteID string
 	entry := h.rooms[id]
 	if h.cfg.DevMode {
 		if token == "invalid" {
-			return domain.RoomInfoMessage{}, domain.Fatalf(domain.CodeInvalidToken, "invitation token is invalid or expired")
+			return domain.RoomInfoMessage{}, "", domain.Fatalf(domain.CodeInvalidToken, "invitation token is invalid or expired")
 		}
 		if id == "closed" {
-			return domain.RoomInfoMessage{}, domain.Fatalf(domain.CodeRoomNotFound, "room %s does not exist", id)
+			return domain.RoomInfoMessage{}, "", domain.Fatalf(domain.CodeRoomNotFound, "room %s does not exist", id)
 		}
 		if entry == nil {
 			if len(h.rooms) >= h.cfg.MaxRooms {
-				return domain.RoomInfoMessage{}, domain.Fatalf(domain.CodeConflict, "too many rooms")
+				return domain.RoomInfoMessage{}, "", domain.Fatalf(domain.CodeConflict, "too many rooms")
 			}
 			room, err := domain.NewRoom(id, domain.RoomSettings{
 				Title: "Sala de pruebas · " + string(id),
 				Host:  domain.HostInfo{Name: "Anfitrión de pruebas"},
 			}, h.clock.Now())
 			if err != nil {
-				return domain.RoomInfoMessage{}, err
+				return domain.RoomInfoMessage{}, "", err
 			}
 			room.Ephemeral = true
-			entry = &roomEntry{room: room, members: map[domain.ParticipantID]*member{}}
+			entry = newRoomEntry(room)
 			h.rooms[id] = entry
 		}
 	} else {
 		if entry == nil {
-			return domain.RoomInfoMessage{}, domain.Fatalf(domain.CodeRoomNotFound, "room %s does not exist", id)
+			return domain.RoomInfoMessage{}, "", domain.Fatalf(domain.CodeRoomNotFound, "room %s does not exist", id)
 		}
-		if err := h.signer.Verify(id, token, h.clock.Now()); err != nil {
-			return domain.RoomInfoMessage{}, err
+		claims, err := h.signer.Verify(id, token, h.clock.Now())
+		if err != nil {
+			return domain.RoomInfoMessage{}, "", err
 		}
+		rec := entry.invites[claims.ID]
+		if rec == nil {
+			// Signed by this bridge but not in its registry: issued before a restart
+			// that dropped the room's state, or for a room that was recreated.
+			return domain.RoomInfoMessage{}, "", domain.Fatalf(domain.CodeInvalidToken, "invitation token is invalid or expired")
+		}
+		if err := rec.usable(h.clock.Now()); err != nil {
+			return domain.RoomInfoMessage{}, "", err
+		}
+		inviteID = claims.ID
 	}
 	if entry.room.Closed {
-		return domain.RoomInfoMessage{}, domain.Fatalf(domain.CodeRoomClosed, "room %s is closed", id)
+		return domain.RoomInfoMessage{}, "", domain.Fatalf(domain.CodeRoomClosed, "room %s is closed", id)
 	}
 	info := entry.room.Info()
 	if entry.room.Ephemeral && len(info.Channels) == 0 {
 		info.Channels = slices.Clone(DevChannels)
 	}
-	return info, nil
+	return info, inviteID, nil
 }
 
 // JoinResult is what a session keeps after joining.
@@ -178,7 +229,7 @@ type ParticipantRef struct {
 
 // Join admits a guest (or resumes a dropped one), sends `welcome` and
 // attaches its media peer. The welcome always precedes any SFU message.
-func (h *Hub) Join(id domain.RoomID, conn ports.Connection, msg domain.JoinMessage) (JoinResult, error) {
+func (h *Hub) Join(id domain.RoomID, conn ports.Connection, msg domain.JoinMessage, inviteID string) (JoinResult, error) {
 	h.mu.Lock()
 	entry := h.rooms[id]
 	if entry == nil {
@@ -212,10 +263,25 @@ func (h *Hub) Join(id domain.RoomID, conn ports.Connection, msg domain.JoinMessa
 			return JoinResult{Self: ParticipantRef{id, msg.Resume}, Peer: peer}, nil
 		}
 	}
+	// The invitation may have been revoked, or used up, since this socket showed it.
+	var rec *inviteRecord
+	if inviteID != "" {
+		if rec = entry.invites[inviteID]; rec == nil {
+			h.mu.Unlock()
+			return JoinResult{}, domain.Fatalf(domain.CodeInvalidToken, "invitation token is invalid or expired")
+		}
+		if err := rec.usable(h.clock.Now()); err != nil {
+			h.mu.Unlock()
+			return JoinResult{}, err
+		}
+	}
 	p, err := entry.room.Join(msg.Name, msg.Title, msg.Video, h.clock.Now())
 	if err != nil {
 		h.mu.Unlock()
 		return JoinResult{}, err
+	}
+	if rec != nil {
+		rec.uses++ // only a guest who really got a seat uses the invitation up
 	}
 	m := &member{conn: conn, resumeToken: newResumeToken()}
 	entry.members[p.ID] = m
@@ -343,7 +409,7 @@ func (h *Hub) CreateRoom(id domain.RoomID, settings domain.RoomSettings) (RoomVi
 		existing.room.Ephemeral = false
 		return h.viewLocked(existing), nil
 	}
-	entry := &roomEntry{room: room, members: map[domain.ParticipantID]*member{}}
+	entry := newRoomEntry(room)
 	h.rooms[id] = entry
 	h.log.Info("room created", "room", id)
 	return h.viewLocked(entry), nil
@@ -449,34 +515,111 @@ func (h *Hub) CloseRoom(id domain.RoomID) error {
 	return nil
 }
 
-// InviteView is an issued invitation link.
+// InviteView is an issued invitation link. The token and URL exist only in the
+// response that creates it: the bridge keeps no copy it could show again.
 type InviteView struct {
+	ID        string    `json:"id"`
 	Token     string    `json:"token"`
 	URL       string    `json:"url"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	MaxUses   int       `json:"maxUses"`
 }
 
-// Invite issues a signed invitation link for the room.
-func (h *Hub) Invite(id domain.RoomID, ttl time.Duration) (InviteView, error) {
+// InviteSummary describes an invitation without its token.
+type InviteSummary struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	MaxUses   int       `json:"maxUses"`
+	Uses      int       `json:"uses"`
+	Revoked   bool      `json:"revoked"`
+	Expired   bool      `json:"expired"`
+	Active    bool      `json:"active"`
+}
+
+// Invite issues a signed invitation link for the room. maxUses 0 means unlimited.
+func (h *Hub) Invite(id domain.RoomID, ttl time.Duration, maxUses int) (InviteView, error) {
 	if ttl <= 0 {
 		ttl = h.cfg.InviteTTL
 	}
 	if ttl > 30*24*time.Hour {
 		return InviteView{}, domain.Errorf(domain.CodeBadRequest, "invitation ttl must be at most 30 days")
 	}
+	if maxUses < 0 || maxUses > MaxInviteUses {
+		return InviteView{}, domain.Errorf(domain.CodeBadRequest, "maxUses must be in [0, %d]", MaxInviteUses)
+	}
+	now := h.clock.Now()
 	h.mu.Lock()
 	entry, err := h.entryLocked(id)
-	closed := err == nil && entry.room.Closed
-	h.mu.Unlock()
 	if err != nil {
+		h.mu.Unlock()
 		return InviteView{}, err
 	}
-	if closed {
+	if entry.room.Closed {
+		h.mu.Unlock()
 		return InviteView{}, domain.Errorf(domain.CodeRoomClosed, "room %s is closed", id)
 	}
-	inv := h.signer.Issue(id, h.clock.Now().Add(ttl))
+	// Forget invitations that can no longer admit anyone before applying the cap.
+	for key, rec := range entry.invites {
+		if rec.usable(now) != nil {
+			delete(entry.invites, key)
+		}
+	}
+	if len(entry.invites) >= MaxInvitesPerRoom {
+		h.mu.Unlock()
+		return InviteView{}, domain.Errorf(domain.CodeConflict, "a room can have at most %d active invitations; revoke some first", MaxInvitesPerRoom)
+	}
+	inviteID := randomHex(8)
+	inv := h.signer.Issue(id, inviteID, now.Add(ttl))
+	entry.invites[inviteID] = &inviteRecord{id: inviteID, createdAt: now, expiresAt: inv.ExpiresAt, maxUses: maxUses}
+	h.mu.Unlock()
 	link := h.cfg.WebRelayURL + "/join/" + url.PathEscape(string(id)) + "?t=" + url.QueryEscape(inv.Token)
-	return InviteView{Token: inv.Token, URL: link, ExpiresAt: inv.ExpiresAt}, nil
+	h.log.Info("invitation issued", "room", id, "invite", inviteID, "expires", inv.ExpiresAt, "maxUses", maxUses)
+	return InviteView{ID: inviteID, Token: inv.Token, URL: link, ExpiresAt: inv.ExpiresAt, MaxUses: maxUses}, nil
+}
+
+// Invites lists the room's invitations, newest first (never their tokens).
+func (h *Hub) Invites(id domain.RoomID) ([]InviteSummary, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	entry, err := h.entryLocked(id)
+	if err != nil {
+		return nil, err
+	}
+	now := h.clock.Now()
+	list := make([]InviteSummary, 0, len(entry.invites))
+	for _, rec := range entry.invites {
+		list = append(list, InviteSummary{
+			ID: rec.id, CreatedAt: rec.createdAt, ExpiresAt: rec.expiresAt, MaxUses: rec.maxUses, Uses: rec.uses,
+			Revoked: rec.revoked, Expired: !now.Before(rec.expiresAt), Active: rec.usable(now) == nil,
+		})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
+			return list[i].ID < list[j].ID
+		}
+		return list[i].CreatedAt.After(list[j].CreatedAt)
+	})
+	return list, nil
+}
+
+// RevokeInvite stops one invitation from admitting anyone else. Guests already
+// in the room stay; the others are the host's to remove (kick) or the room's to
+// close.
+func (h *Hub) RevokeInvite(id domain.RoomID, inviteID string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	entry, err := h.entryLocked(id)
+	if err != nil {
+		return err
+	}
+	rec, ok := entry.invites[inviteID]
+	if !ok {
+		return domain.Errorf(domain.CodeNotFound, "invitation %s not found in room %s", inviteID, id)
+	}
+	rec.revoked = true
+	h.log.Info("invitation revoked", "room", id, "invite", inviteID)
+	return nil
 }
 
 // AddDestination stores an RTMP(S) output; the key is returned masked.
