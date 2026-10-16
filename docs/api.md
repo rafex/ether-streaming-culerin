@@ -20,7 +20,7 @@ devuelven completas.
 | `GET /rooms/{room}` | — | `Room` |
 | `PATCH /rooms/{room}` | `{title?, host?: {name?, avatar?}, capacity?, layout?, admission?}` | `Room` |
 | `DELETE /rooms/{room}` | — | 204; cierra la sala: expulsa (`room-closed`) e invalida las invitaciones |
-| `POST /rooms/{room}/invites` | `{ttlSeconds?, maxUses?}` | 201 `{id, token, url, expiresAt, maxUses}`. `maxUses` 0–1000 (0: sin límite) |
+| `POST /rooms/{room}/invites` | `{ttlSeconds?, maxUses?}` | 201 `{id, token, url, expiresAt, maxUses}`. `maxUses` 0–1000 (0: sin límite). **Cuenta asientos, no personas** (ver abajo) |
 | `GET /rooms/{room}/invites` | — | 200 lista `{id, createdAt, expiresAt, maxUses, uses, revoked, expired, active}`, la más nueva primero. **Nunca incluye el token ni el enlace** |
 | `DELETE /rooms/{room}/invites/{id}` | — | 204; revoca esa invitación (404 si no existe) |
 | `POST /rooms/{room}/destinations` | `{name, url, streamKey, kind?, enabled?}` | 201 `Destination` |
@@ -76,6 +76,11 @@ Públicos: `GET /healthz` y `GET /signal` (señalización v2).
   caducada y con usos libres (`maxUses`). El token y el enlace solo se devuelven
   al crearla; el puente no puede volver a mostrarlos, solo listar su estado y
   revocarla.
+- **`maxUses` cuenta asientos, no personas.** Quien recarga la pestaña o vuelve a abrir el enlace
+  deja de ser el mismo participante y necesita un uso nuevo; con `maxUses: 1` esa persona no podría
+  volver a entrar. Una reconexión sin recargar (corte de red) **no** gasta uso: reanuda su sitio. Si
+  invitas a N personas, pon un margen (por ejemplo 2·N) o no pongas tope y revoca la invitación
+  cuando ya hayan entrado todos.
 - Un uso se cuenta cuando un invitado **consigue sitio** (no al abrir el lobby,
   no al reanudar tras una caída, no si la sala está llena). Revocar o agotar una
   invitación no expulsa a quien ya entró (para eso `DELETE …/participants/{id}`)

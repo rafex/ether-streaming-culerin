@@ -196,7 +196,7 @@ func (h *Hub) Peek(id domain.RoomID, token string) (domain.RoomInfoMessage, stri
 			return domain.RoomInfoMessage{}, "", domain.Fatalf(domain.CodeRoomNotFound, "room %s does not exist", id)
 		}
 		if entry == nil {
-			if len(h.rooms) >= h.cfg.MaxRooms {
+			if h.openRoomsLocked() >= h.cfg.MaxRooms {
 				return domain.RoomInfoMessage{}, "", domain.Fatalf(domain.CodeConflict, "too many rooms")
 			}
 			room, err := domain.NewRoom(id, domain.RoomSettings{
@@ -436,8 +436,9 @@ func (h *Hub) CreateRoom(id domain.RoomID, settings domain.RoomSettings) (RoomVi
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, exists := h.rooms[id]; !exists && len(h.rooms) >= h.cfg.MaxRooms {
-		return RoomView{}, domain.Errorf(domain.CodeConflict, "too many rooms (limit %d); close one first", h.cfg.MaxRooms)
+	h.pruneClosedLocked()
+	if _, exists := h.rooms[id]; !exists && h.openRoomsLocked() >= h.cfg.MaxRooms {
+		return RoomView{}, domain.Errorf(domain.CodeConflict, "too many open rooms (limit %d); close one first", h.cfg.MaxRooms)
 	}
 	if existing, ok := h.rooms[id]; ok && !existing.room.Ephemeral {
 		return RoomView{}, domain.Errorf(domain.CodeConflict, "room %s already exists", id)
@@ -695,6 +696,40 @@ func (h *Hub) Deny(room domain.RoomID, wid string) error {
 	h.dropWaitingLocked(entry, wid, domain.Fatalf(domain.CodeDenied, "the host did not let you in"), 4405)
 	h.log.Info("guest denied", "room", room, "waiting", wid)
 	return nil
+}
+
+// MaxClosedRooms is how many closed rooms the bridge keeps as history (the console
+// lists them) before forgetting the oldest. They hold no guests, but they do hold the
+// room's destinations, so they must not pile up for the life of the process.
+const MaxClosedRooms = 100
+
+// openRoomsLocked counts the rooms that can still hold a call. Closed rooms are
+// history: they must not use up the limit.
+func (h *Hub) openRoomsLocked() int {
+	n := 0
+	for _, entry := range h.rooms {
+		if !entry.room.Closed {
+			n++
+		}
+	}
+	return n
+}
+
+// pruneClosedLocked forgets the oldest closed rooms beyond MaxClosedRooms.
+func (h *Hub) pruneClosedLocked() {
+	var closed []*roomEntry
+	for _, entry := range h.rooms {
+		if entry.room.Closed {
+			closed = append(closed, entry)
+		}
+	}
+	if len(closed) <= MaxClosedRooms {
+		return
+	}
+	sort.Slice(closed, func(i, j int) bool { return closed[i].room.CreatedAt.Before(closed[j].room.CreatedAt) })
+	for _, entry := range closed[:len(closed)-MaxClosedRooms] {
+		delete(h.rooms, entry.room.ID)
+	}
 }
 
 // InviteView is an issued invitation link. The token and URL exist only in the

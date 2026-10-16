@@ -31,7 +31,7 @@ Todo se configura con variables de entorno `BRIDGE_*` (o `.env` con
 | `BRIDGE_RECORD_DIR` | — | Si se define, cada emisión se graba además en `<dir>/<sala>-<fecha>.flv` |
 | `BRIDGE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `BRIDGE_TRUSTED_PROXY_HOPS` | `0` | Proxies inversos delante del puente que añaden al cliente a `X-Forwarded-For` (0–5). Solo decide a qué dirección se imputan los límites (ver *Endurecimiento*) |
-| `BRIDGE_MAX_ROOMS` | `50` | Tope de salas abiertas (también las bajo demanda del modo desarrollo) |
+| `BRIDGE_MAX_ROOMS` | `50` | Tope de salas **abiertas** (también las bajo demanda del modo desarrollo). Las cerradas no cuentan; el puente conserva las últimas 100 como historial y olvida las más antiguas |
 | `BRIDGE_MAX_DESTINATIONS` | `8` | Tope de destinos RTMP(S) por sala |
 | `BRIDGE_ALLOW_PRIVATE_DESTINATIONS` | `true` en modo desarrollo, `false` si no | Permite destinos en loopback/red privada (sumideros RTMP locales). En producción déjalo en `false` |
 
@@ -53,7 +53,7 @@ Lo que el puente hace por sí mismo (además de las políticas de red del despli
 | Destinos | Solo `rtmp://` / `rtmps://` con host público: se rechazan IPs de loopback, privadas, link-local, CGNAT, `localhost` y nombres internos (`.svc`, `.cluster.local`, `.local`…). No ve a través de DNS: un nombre público que resuelva a una IP privada lo frena la `NetworkPolicy` de salida del despliegue |
 | Admisión | Con `admission: approval` los invitados esperan en una sala de espera (máx. 20, 5 min) hasta que el anfitrión los admite desde la consola; el permiso es un token de un solo uso ligado al socket, así que no se puede saltar la espera con un `join` inventado ni reutilizar el de otro |
 | Invitaciones | Cada invitación tiene id, caducidad (≤ 30 días) y usos máximos opcionales; se pueden listar y revocar una a una, sin necesidad de cerrar la sala ni de rotar `BRIDGE_INVITE_SECRET`. Máximo 100 activas por sala. El token solo se ve al crearla |
-| Recursos | Máximo de salas y de destinos por sala; invitaciones de hasta 30 días |
+| Recursos | Máximo de salas abiertas y de destinos por sala; invitaciones de hasta 30 días |
 | Servidor HTTP | `ReadHeaderTimeout` 10 s, `IdleTimeout` 120 s, cabeceras ≤ 16 KiB. Sin `ReadTimeout`/`WriteTimeout` a propósito: cortarían los WebSockets |
 | Cabeceras | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener/Resource-Policy: same-origin` en todo; `Strict-Transport-Security` siempre (el proxy que termina TLS no avisa al puente, y los navegadores lo ignoran sobre HTTP); la consola añade CSP y `Permissions-Policy` sin cámara ni micrófono |
 
