@@ -1,20 +1,33 @@
 # Actualizaciones de dependencias y de acciones de GitHub como PR semanales.
 # Las acciones están fijadas a una versión exacta: Dependabot propone la nueva.
+#
+# Política:
+#  - cooldown: no se propone una versión con menos de 14 días de vida. Una versión recién
+#    publicada puede retirarse por un fallo o por estar comprometida; esperar es gratis (las
+#    actualizaciones de seguridad no tienen cooldown).
+#  - Pion es el núcleo del SFU (ICE, DTLS, SRTP): sus subidas llegan en un solo PR y NO se
+#    fusionan solo con el CI en verde; ver docs/configuration.md («Actualizar Pion»).
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /source/backend/go/bridge
     schedule: {interval: weekly}
     open-pull-requests-limit: 5
+    cooldown: {default-days: 14}
     groups:
       pion: {patterns: ["github.com/pion/*"]}
       golang-x: {patterns: ["golang.org/x/*"]}
   - package-ecosystem: github-actions
     directory: /
     schedule: {interval: weekly}
+    cooldown: {default-days: 14}
+    groups:
+      actions: {patterns: ["*"]}
   - package-ecosystem: docker
     directory: /containers/bridge
     schedule: {interval: weekly}
+    cooldown: {default-days: 14}
   - package-ecosystem: docker
     directory: /containers/ci
     schedule: {interval: weekly}
+    cooldown: {default-days: 14}

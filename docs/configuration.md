@@ -87,3 +87,25 @@ El bloqueo por intentos fallidos cuenta igual con cualquiera de los dos. Si
 sospechas que el token se filtró, no esperes a la ventana: cámbialo directamente
 (paso 4) y reinicia. Para el despliegue en k3s, el procedimiento con SOPS está en
 `docs/hardening.md` del repositorio gitops.
+
+## Actualizar Pion
+
+Pion (`github.com/pion/*`) es el núcleo del SFU: ICE, DTLS, SRTP y la negociación de cada
+invitado. Dependabot propone sus subidas en un solo PR, pero **el CI en verde no basta**: el E2E
+prueba una llamada local por loopback y no cubre el puerto UDP único con IP pública, ni una
+emisión larga, ni los cambios de composición. Antes de fusionar una subida:
+
+1. **Leer las notas** de `webrtc`, `ice`, `srtp` y `dtls` entre las versiones (qué cambia en
+   multiplexado de puertos, mDNS, SRTP y estadísticas).
+2. `make vuln` y `make scan` sobre la rama.
+3. **Laboratorio idéntico a producción** (imagen del puente con su FFmpeg): una llamada de dos
+   invitados con compartir pantalla y cambios de composición durante ~90 s. Comparar las paradas
+   al recomponer con la línea base (≈ 2,7 s al empezar a compartir, ≈ 2,2 s al dejar) y comprobar
+   que `RcvbufErrors` de `/proc/net/snmp` no empeora.
+4. **Desplegar con la sala vacía** (el pod se reinicia y se pierden salas y destinos), hacer una
+   llamada real desde fuera de la red y una emisión de prueba.
+5. **Reversión:** Flux elige el `build-N` más alto, así que no basta con volver a una etiqueta
+   anterior; hay que fusionar un revert (o suspender la automatización de imágenes).
+
+El resto de las dependencias de Go (`golang.org/x/*`) y las acciones de CI son de bajo riesgo y las
+valida el CI.
