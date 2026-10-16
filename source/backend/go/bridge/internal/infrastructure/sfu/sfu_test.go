@@ -108,8 +108,11 @@ func TestTwoParticipantsThroughTheSFU(t *testing.T) {
 	defer s.Close()
 	listener := &recordingListener{}
 	s.SetListener(listener)
+	// The pumps report through t, so the test must not return (and t.Cleanup must not
+	// close the clients' connections) while one is still handling a message.
 	stop := make(chan struct{})
-	defer close(stop)
+	var pumps sync.WaitGroup
+	defer func() { close(stop); pumps.Wait() }()
 
 	ana, beto := newClient(t), newClient(t)
 	if ana.peer, err = s.Attach("demo", "p-1", ana.sink); err != nil {
@@ -118,8 +121,9 @@ func TestTwoParticipantsThroughTheSFU(t *testing.T) {
 	if beto.peer, err = s.Attach("demo", "p-2", beto.sink); err != nil {
 		t.Fatal(err)
 	}
-	go ana.pump(stop)
-	go beto.pump(stop)
+	pumps.Add(2)
+	go func() { defer pumps.Done(); ana.pump(stop) }()
+	go func() { defer pumps.Done(); beto.pump(stop) }()
 
 	// Ana publishes a VP8 camera track.
 	track, _ := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}, "cam", "ana")
