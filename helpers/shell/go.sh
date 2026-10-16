@@ -11,7 +11,7 @@ source "$SCRIPT_DIR/lib/messages.sh"
 # Contrato de flags (regla 01):
 #   --goal <goal>                       install | build | test | test-unit |
 #                                       test-integration | coverage | lint |
-#                                       format | run | e2e
+#                                       format | vuln | run | e2e
 #   --module source/backend/go/bridge   Proyecto (default: .)
 #   --port 8090                         Puerto HTTP (run: 8090, e2e: 18190)
 #   --webrelay-dir <ruta>               Frontend para el E2E (o WEBRELAY_DIR)
@@ -88,6 +88,13 @@ lint() {
 	success "lint superado"
 }
 
+# govulncheck (versión fijada): falla solo con vulnerabilidades conocidas que el
+# código SÍ alcanza, no con las de módulos que no se llaman.
+vuln() {
+	go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+	success "sin vulnerabilidades alcanzables"
+}
+
 # E2E: el Playwright del webrelay contra este puente en modo desarrollo.
 e2e() {
 	local dir="${webrelay_dir:-$WORKSPACE/../ether-webrelay/source/frontend/nodejs/webrelay}"
@@ -131,6 +138,7 @@ case "$goal" in
 	coverage)         coverage ;;
 	lint)             lint ;;
 	format)           gofmt -w . ;;
+	vuln)             vuln ;;
 	run)              BRIDGE_DEV_MODE="${BRIDGE_DEV_MODE:-true}" BRIDGE_ADDR="${BRIDGE_ADDR:-127.0.0.1:${port:-8090}}" go run ./cmd/bridge ;;
 	e2e)              e2e ;;
 	*)                die "Unknown goal: $goal" ;;
