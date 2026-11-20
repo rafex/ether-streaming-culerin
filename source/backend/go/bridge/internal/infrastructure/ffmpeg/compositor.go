@@ -146,6 +146,18 @@ type pipeline struct {
 	since    time.Time
 	restarts int
 	lastErr  string
+
+	// Diagnostics (see health.go / diagnose.go).
+	meter        *healthMeter // what reaches the current publisher
+	pubStarted   time.Time    // when the current publisher started
+	onAirAt      time.Time    // when a run went on air for the current publisher (zero: none yet)
+	failStreak   int          // consecutive publisher failures, for the restart backoff
+	lastErrKind  string
+	lastErrAt    time.Time
+	outKbps      float64
+	runStartedAt time.Time // when the latest compositor run started
+	repairAt     time.Time // last stall repair
+	repairs      int       // repairs in the current stall episode
 }
 
 // startupTimeout bounds how long a new run may take to produce its first
@@ -172,6 +184,8 @@ func (p *pipeline) apply(plan domain.CompositionPlan, outputs []ports.Output) er
 		p.since = time.Now()
 	} else if len(p.runs) > 0 && p.plan.Signature() == plan.Signature() {
 		return nil
+	} else {
+		p.c.log.Info("recomposing", "room", p.room, "reason", planDiff(p.plan, plan))
 	}
 	p.plan = plan
 	return p.startComposeLocked()
@@ -192,7 +206,12 @@ func (p *pipeline) startPublishLocked(outputs []ports.Output) error {
 		return err
 	}
 	p.publish = proc
-	p.splice = newSplicer(proc.stdin, time.Now)
+	meter := newHealthMeter(time.Now)
+	p.meter = meter
+	p.pubStarted = time.Now()
+	p.onAirAt = time.Time{}
+	p.splice = newSplicer(meter.writer(proc.stdin), time.Now)
+	p.splice.meter = meter
 	p.runs = map[int]*process{}
 	go func() {
 		err := proc.wait()
@@ -202,13 +221,65 @@ func (p *pipeline) startPublishLocked(outputs []ports.Output) error {
 			return
 		}
 		// Every destination failed (or FFmpeg died): restart the whole stream.
-		p.lastErr = describeExit("publisher", err, proc.lastLines()) // lines are already redacted
+		lines := proc.lastLines() // already redacted
+		diag := classifyExit(lines)
+		lived := time.Since(p.pubStarted)
+		p.failStreak = nextStreak(p.failStreak, lived)
+		delay := restartDelay(p.failStreak)
+		p.lastErr = describeExit("publisher", err, lines)
+		p.lastErrKind, p.lastErrAt = diag.kind, time.Now()
 		p.restarts++
-		p.c.log.Warn("publisher exited; restarting", "room", p.room, "err", p.lastErr)
+		totalBytes, tagAge := meter.totals()
+		p.c.log.Warn("publisher exited; restarting", "room", p.room, "kind", diag.kind,
+			"destination", p.destinationFor(lines, diag.slave), "err", p.lastErr,
+			"uptime", lived.Round(time.Second).String(), "sent_bytes", totalBytes,
+			"last_tag_age_ms", tagAge.Milliseconds(), "since_last_recompose", p.sinceRecompose(),
+			"fail_streak", p.failStreak, "retry_in", delay.String(), "tail", tailOf(lines))
 		p.killLocked()
-		time.AfterFunc(2*time.Second, p.restart)
+		time.AfterFunc(delay, p.restart)
 	}()
+	go p.healthLoop(proc, meter)
 	return nil
+}
+
+// destinationFor names the destination FFmpeg complained about: by its (redacted) URL when a
+// line mentions it, else by the tee slave index, else "all" when there is only one to blame.
+func (p *pipeline) destinationFor(lines []string, slave int) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		for _, o := range p.outputs {
+			if strings.Contains(lines[i], redact(o.URL, p.outputs)) {
+				return o.ID
+			}
+		}
+	}
+	switch {
+	case slave >= 0 && slave < len(p.outputs):
+		return p.outputs[slave].ID
+	case slave >= len(p.outputs) && slave >= 0:
+		return "recording"
+	case len(p.outputs) == 1:
+		return p.outputs[0].ID
+	}
+	return "unknown"
+}
+
+// sinceRecompose is how long ago the latest compositor run started (for exit context: a stream
+// that dies right after a layout change points at the change, not at the network).
+func (p *pipeline) sinceRecompose() string {
+	if p.runStartedAt.IsZero() {
+		return "n/a"
+	}
+	return time.Since(p.runStartedAt).Round(100 * time.Millisecond).String()
+}
+
+// tailOf joins the last lines FFmpeg printed (already redacted) for a log field.
+func tailOf(lines []string) string {
+	text := strings.Join(lines, " | ")
+	const limit = 1800
+	if len(text) > limit {
+		text = "…" + text[len(text)-limit:]
+	}
+	return text
 }
 
 func (p *pipeline) restart() {
@@ -266,6 +337,7 @@ func (p *pipeline) startComposeLocked() error {
 	}
 	proc.onKill = func() { run.close(p.c) }
 	p.runs[gen] = proc
+	p.runStartedAt = time.Now()
 	splice := p.splice
 
 	go func() {
@@ -282,9 +354,14 @@ func (p *pipeline) startComposeLocked() error {
 			return
 		}
 		// The run on air died, or a pending run failed before its first frame.
-		p.lastErr = describeExit("compositor", exitErr, proc.lastLines())
+		lines := proc.lastLines()
+		diag := classifyExit(lines)
+		p.lastErr = describeExit("compositor", exitErr, lines)
+		p.lastErrKind, p.lastErrAt = diag.kind, time.Now()
 		p.restarts++
-		p.c.log.Warn("compositor exited", "room", p.room, "run", gen, "err", p.lastErr)
+		p.c.log.Warn("compositor exited", "room", p.room, "run", gen, "kind", diag.kind,
+			"err", p.lastErr, "lived", time.Since(proc.started).Round(100*time.Millisecond).String(),
+			"tail", tailOf(lines))
 		time.AfterFunc(time.Second, func() { p.retry(gen) })
 	}()
 	time.AfterFunc(startupTimeout, func() {
@@ -317,12 +394,17 @@ func (p *pipeline) takeOver(gen int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.onAir = gen
+	p.onAirAt = time.Now()
 	for g, proc := range p.runs {
 		if g < gen {
 			proc.kill()
 		}
 	}
-	p.c.log.Info("compositor on air", "room", p.room, "run", gen)
+	startup := time.Duration(0)
+	if proc := p.runs[gen]; proc != nil {
+		startup = time.Since(proc.started)
+	}
+	p.c.log.Info("compositor on air", "room", p.room, "run", gen, "startup_ms", startup.Milliseconds())
 }
 
 // retry starts a new run if gen is still the latest one.
@@ -426,7 +508,8 @@ func (p *pipeline) setCaption(text string) {
 func (p *pipeline) status() ports.BroadcastStatus {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return ports.BroadcastStatus{Live: !p.stopped && p.publish != nil, Since: p.since, Restarts: p.restarts, LastError: p.lastErr}
+	return ports.BroadcastStatus{Live: !p.stopped && p.publish != nil, Since: p.since, Restarts: p.restarts,
+		LastError: p.lastErr, LastErrorKind: p.lastErrKind, LastErrorAt: p.lastErrAt, OutKbps: int(p.outKbps + 0.5)}
 }
 
 // composeRun owns the per-run resources: SDP files, UDP sockets, taps.
@@ -499,13 +582,14 @@ func (r *composeRun) close(c *Compositor) {
 
 // process is a supervised FFmpeg child.
 type process struct {
-	cmd    *exec.Cmd
-	cancel context.CancelFunc
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	done   chan struct{}
-	err    error
-	onKill func()
+	cmd     *exec.Cmd
+	cancel  context.CancelFunc
+	stdin   io.WriteCloser
+	stdout  io.ReadCloser
+	done    chan struct{}
+	err     error
+	onKill  func()
+	started time.Time
 
 	mu    sync.Mutex
 	lines []string
@@ -516,7 +600,7 @@ func startProcess(binary string, args []string, withStdin bool, log *slog.Logger
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.WaitDelay = 3 * time.Second
-	p := &process{cmd: cmd, cancel: cancel, done: make(chan struct{})}
+	p := &process{cmd: cmd, cancel: cancel, done: make(chan struct{}), started: time.Now()}
 	var err error
 	if withStdin {
 		if p.stdin, err = cmd.StdinPipe(); err != nil {

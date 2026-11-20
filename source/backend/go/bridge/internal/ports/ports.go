@@ -94,6 +94,12 @@ type BroadcastStatus struct {
 	Since     time.Time `json:"since,omitzero"`
 	Restarts  int       `json:"restarts"`
 	LastError string    `json:"lastError,omitempty"`
+	// LastErrorKind classifies the last failure (remote-closed, timeout, rejected, dns, refused,
+	// encoder, stall, unknown); LastErrorAt is when it happened.
+	LastErrorKind string    `json:"lastErrorKind,omitempty"`
+	LastErrorAt   time.Time `json:"lastErrorAt,omitzero"`
+	// OutKbps is what was sent to the destinations in the last health interval.
+	OutKbps int `json:"outKbps,omitempty"`
 }
 
 // Compositor renders a CompositionPlan and publishes it to the outputs.

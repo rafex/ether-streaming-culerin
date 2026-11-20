@@ -188,7 +188,12 @@ function renderRoom() {
   const detail = [];
   if (live && broadcast.since) detail.push(`desde ${new Date(broadcast.since).toLocaleTimeString()}`);
   if (broadcast.restarts) detail.push(`${broadcast.restarts} reinicio(s)`);
-  if (broadcast.lastError) detail.push(`último error: ${broadcast.lastError}`);
+  if (broadcast.outKbps) detail.push(`enviando ${broadcast.outKbps} kbps`);
+  if (broadcast.lastError) {
+    const when = broadcast.lastErrorAt ? ` (${new Date(broadcast.lastErrorAt).toLocaleTimeString()})` : '';
+    const kind = broadcast.lastErrorKind ? `[${broadcast.lastErrorKind}] ` : '';
+    detail.push(`último error${when}: ${kind}${broadcast.lastError}`);
+  }
   $('#air-detail').textContent = detail.join(' · ');
   if (document.activeElement !== $('#layout-mode')) $('#layout-mode').value = room.layout;
 

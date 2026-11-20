@@ -53,10 +53,15 @@ Públicos: `GET /healthz` y `GET /signal` (señalización v2).
     "id": "d-1", "name": "YouTube", "kind": "youtube",
     "url": "rtmps://a.rtmp.youtube.com/live2", "streamKey": "••••••••9f3c", "enabled": true
   }],
-  "broadcast": {"live": true, "since": "2026-10-13T17:02:00Z", "restarts": 0}
+  "broadcast": {"live": true, "since": "2026-10-13T17:02:00Z", "restarts": 0, "outKbps": 3612}
 }
 ```
 
+- `broadcast` (cuando hay emisión): `restarts` cuenta los reinicios del publicador o del compositor;
+  `lastError` es el último error (con las claves de emisión ocultas), `lastErrorKind` lo clasifica
+  (`remote-closed`, `timeout`, `rejected`, `dns`, `refused`, `encoder`, `stall`, `unknown`),
+  `lastErrorAt` es cuándo ocurrió y `outKbps` lo que se envió a los destinos en los últimos 5 s.
+  Cómo leer los logs de un corte: [Diagnóstico de la emisión](composition.md#diagnostico-de-la-emision).
 - `layout`: `auto` (mosaico; la pantalla compartida en foco con las cámaras en
   columna), `grid` (siempre mosaico), `speaker` (el primero en escena en foco).
 - `kind`: `youtube`, `twitch`, `facebook`, `custom` (se deduce del host si se
