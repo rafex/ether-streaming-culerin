@@ -1,6 +1,6 @@
 # Imagen de CI (regla 06): toolchain Go + FFmpeg para las pruebas de integración
 # del compositor. Base fijada por digest (regla 08).
-FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e
+FROM docker.io/library/golang:1.27.4-trixie@sha256:96335ac31f35abde9f40cbb1032e06d8571fc43c51230e9a90e14145debc6199
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core make curl \

@@ -1,7 +1,7 @@
 # Imagen del puente: binario Go estático + FFmpeg (composición y publicación
 # RTMP(S)) + DejaVu (rótulos). Bases fijadas por digest (regla 08).
 
-FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS build
+FROM docker.io/library/golang:1.27.4-trixie@sha256:96335ac31f35abde9f40cbb1032e06d8571fc43c51230e9a90e14145debc6199 AS build
 ARG VERSION=dev
 WORKDIR /src
 COPY source/backend/go/bridge/go.mod source/backend/go/bridge/go.sum ./
