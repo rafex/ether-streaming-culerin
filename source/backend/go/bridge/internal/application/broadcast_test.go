@@ -2,6 +2,9 @@ package application
 
 import (
 	"errors"
+	"log/slog"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,5 +123,61 @@ func TestBroadcastEndsWithoutDestinations(t *testing.T) {
 		comp.mu.Lock()
 		defer comp.mu.Unlock()
 		return comp.stopped > 0
+	})
+}
+
+// syncBuffer is a log sink the broadcast loop and the test can share.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestBroadcastLogsWhenASourceGoesQuietAndComesBack(t *testing.T) {
+	f := newFixture(t, false)
+	f.createRoom(t, "demo")
+	comp := &fakeCompositor{}
+	tap := &fakeTap{clock: f.clock, dead: map[domain.SourceRef]bool{}}
+	logs := &syncBuffer{}
+	b := NewBroadcaster(f.hub, comp, tap, f.clock, BroadcastConfig{
+		Output: domain.DefaultOutput, Debounce: time.Millisecond, Tick: 5 * time.Millisecond,
+	}, slog.New(slog.NewTextHandler(logs, nil)))
+	t.Cleanup(b.StopAll)
+	f.hub.AddDestination("demo", domain.Destination{Name: "M", URL: "rtmp://localhost/live", StreamKey: "k", Enabled: true})
+	f.guest(t, "demo", "Ana")
+	f.hub.SourcePublished("demo", "p-1", domain.SourceCamera)
+	if err := b.Start("demo"); err != nil {
+		t.Fatal(err)
+	}
+
+	camera := domain.SourceRef{Participant: "p-1", Source: domain.SourceCamera}
+	tap.mu.Lock()
+	tap.dead[camera] = true
+	tap.mu.Unlock()
+	eventually(t, "the silence to be logged", func() bool {
+		return strings.Contains(logs.String(), "source stopped delivering media") && strings.Contains(logs.String(), "p-1/camera")
+	})
+	// Once per silence, not on every tick.
+	time.Sleep(40 * time.Millisecond)
+	if n := strings.Count(logs.String(), "source stopped delivering media"); n != 1 {
+		t.Fatalf("silence logged %d times, want 1:\n%s", n, logs.String())
+	}
+
+	tap.mu.Lock()
+	delete(tap.dead, camera)
+	tap.mu.Unlock()
+	eventually(t, "the recovery to be logged", func() bool {
+		return strings.Contains(logs.String(), "source delivering media again")
 	})
 }

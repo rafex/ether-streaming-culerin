@@ -36,6 +36,7 @@ type splicer struct {
 	metaSent   bool
 	last       map[byte]uint32 // last written timestamp per tag type
 	seq        map[byte][]byte // last sequence header per tag type
+	meter      *healthMeter    // optional: counts what reaches the publisher
 }
 
 func newSplicer(w io.Writer, now func() time.Time) *splicer {
@@ -150,8 +151,11 @@ func (s *splicer) writeTagLocked(kind byte, tagHeader, body, data []byte, out in
 	}
 	size := len(data)
 	binary.BigEndian.PutUint32(body[size:], uint32(11+size))
-	_, err := s.w.Write(body)
-	return err
+	if _, err := s.w.Write(body); err != nil {
+		return err
+	}
+	s.meter.tag(kind)
+	return nil
 }
 
 func writeTimestamp(tagHeader []byte, ts uint32) {
