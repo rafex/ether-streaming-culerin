@@ -185,6 +185,30 @@ func (h *Hub) OnCaption(fn func(room domain.RoomID, speaker domain.ParticipantID
 	h.onCaption = fn
 }
 
+// HostCaption shows a line typed by the host as a caption ("Host name: text"): a manual caption, or a
+// way to check the overlay without a speech engine. It needs captions turned on for the room; an empty
+// text clears the line.
+func (h *Hub) HostCaption(id domain.RoomID, text string) error {
+	h.mu.Lock()
+	entry, err := h.entryLocked(id)
+	if err != nil {
+		h.mu.Unlock()
+		return err
+	}
+	if entry.room.Closed {
+		h.mu.Unlock()
+		return domain.Errorf(domain.CodeRoomClosed, "room %s is closed", id)
+	}
+	if !entry.room.Settings.Captions {
+		h.mu.Unlock()
+		return domain.Errorf(domain.CodeConflict, "captions are off for room %s", id)
+	}
+	name := entry.room.Settings.Host.Name
+	h.mu.Unlock()
+	h.onCaption(id, "", name, domain.CleanCaption(text))
+	return nil
+}
+
 // captionMinInterval caps how often one guest can replace the line on screen.
 const captionMinInterval = 100 * time.Millisecond
 

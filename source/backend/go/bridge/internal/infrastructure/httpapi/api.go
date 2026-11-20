@@ -221,6 +221,24 @@ func (s *Server) removeDestination(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type captionBody struct {
+	Text string `json:"text"`
+}
+
+// hostCaption shows a line typed by the host as a caption on the broadcast (needs captions on).
+func (s *Server) hostCaption(w http.ResponseWriter, r *http.Request) {
+	var body captionBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.hub.HostCaption(roomID(r), body.Text); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) startBroadcast(w http.ResponseWriter, r *http.Request) {
 	if err := s.broadcaster.Start(roomID(r)); err != nil {
 		writeError(w, err)

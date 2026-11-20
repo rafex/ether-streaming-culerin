@@ -26,6 +26,7 @@ devuelven completas.
 | `POST /rooms/{room}/destinations` | `{name, url, streamKey, kind?, enabled?}` | 201 `Destination` |
 | `PATCH /rooms/{room}/destinations/{id}` | `{enabled}` | `Room` |
 | `DELETE /rooms/{room}/destinations/{id}` | — | 204 |
+| `POST /rooms/{room}/caption` | `{text}` | 204; muestra la frase como subtítulo del anfitrión (6 s; `""` la borra). 409 si los subtítulos están apagados |
 | `POST /rooms/{room}/broadcast/start` | — | `Room` (409 sin destinos activos) |
 | `POST /rooms/{room}/broadcast/stop` | — | `Room` |
 | `GET /rooms/{room}/layout` | — | `CompositionPlan` actual (también fuera del aire) |

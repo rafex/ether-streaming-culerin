@@ -115,8 +115,18 @@ func TestAPIRoomLifecycle(t *testing.T) {
 	if code, body := call(t, srv, "GET", "/api/v1/rooms/demo", ``, adminToken); code != 200 || body["captions"] != true {
 		t.Fatalf("captions must persist: %d %v", code, body)
 	}
+	// The host can type a caption while they are on.
+	if code, _ := call(t, srv, "POST", "/api/v1/rooms/demo/caption", `{"text":"hola"}`, adminToken); code != 204 {
+		t.Fatalf("host caption with captions on: %d", code)
+	}
+	if code, _ := call(t, srv, "POST", "/api/v1/rooms/demo/caption", `{"text":"x","bogus":1}`, adminToken); code != 400 {
+		t.Fatal("unknown fields must be rejected")
+	}
 	if code, body := call(t, srv, "PATCH", "/api/v1/rooms/demo", `{"captions":false}`, adminToken); code != 200 || body["captions"] != false {
 		t.Fatalf("captions off: %d %v", code, body)
+	}
+	if code, _ := call(t, srv, "POST", "/api/v1/rooms/demo/caption", `{"text":"hola"}`, adminToken); code != 409 {
+		t.Fatalf("host caption with captions off must be 409, got %d", code)
 	}
 
 	code, inv := call(t, srv, "POST", "/api/v1/rooms/demo/invites", `{"ttlSeconds":3600}`, adminToken)

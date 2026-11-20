@@ -2,6 +2,7 @@ package application
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -216,5 +217,36 @@ func TestTogglingCaptionsRecomposesOnlyThen(t *testing.T) {
 	time.Sleep(40 * time.Millisecond)
 	if comp.count() != applied {
 		t.Fatal("caption text changes must not recompose the broadcast")
+	}
+}
+
+func TestTheHostCanTypeACaptionAndItNeedsCaptionsOn(t *testing.T) {
+	f := newFixture(t, false)
+	f.createRoom(t, "demo")
+	got := captureCaptions(f)
+
+	var de *domain.Error
+	if err := f.hub.HostCaption("demo", "hola"); !errors.As(err, &de) || de.Code != domain.CodeConflict {
+		t.Fatalf("captions off must be a conflict, got %v", err)
+	}
+	if err := f.hub.HostCaption("ghost", "hola"); !errors.As(err, &de) || de.Code != domain.CodeNotFound {
+		t.Fatalf("unknown room: %v", err)
+	}
+	enableCaptions(t, f, true)
+	if err := f.hub.HostCaption("demo", "  hola\u202e a todos "); err != nil {
+		t.Fatal(err)
+	}
+	if len(*got) != 1 || (*got)[0].name != "Rafex" || (*got)[0].text != "hola a todos" {
+		t.Fatalf("host caption = %v", *got)
+	}
+	// Clearing goes through, and a closed room refuses.
+	if err := f.hub.HostCaption("demo", ""); err != nil || (*got)[1].text != "" {
+		t.Fatalf("clear: %v %v", err, *got)
+	}
+	if err := f.hub.CloseRoom("demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.hub.HostCaption("demo", "tarde"); !errors.As(err, &de) || de.Code != domain.CodeRoomClosed {
+		t.Fatalf("closed room: %v", err)
 	}
 }
