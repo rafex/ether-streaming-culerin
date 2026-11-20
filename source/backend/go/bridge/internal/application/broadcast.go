@@ -42,6 +42,9 @@ type liveRoom struct {
 	stop  chan struct{}
 	done  chan struct{}
 	err   string
+	// silent holds the sources that stopped delivering (only the broadcast loop touches it), so
+	// the log says when a camera/screen/mic went quiet and when it came back.
+	silent map[domain.SourceRef]bool
 }
 
 // NewBroadcaster hooks itself to the hub's change notifications.
@@ -62,7 +65,7 @@ func NewBroadcaster(hub *Hub, comp ports.Compositor, tap ports.MediaTap, clock p
 
 // Start puts the room on air. It needs at least one enabled destination.
 func (b *Broadcaster) Start(id domain.RoomID) error {
-	plan, outputs, err := b.snapshot(id)
+	plan, outputs, err := b.snapshot(id, nil)
 	if err != nil {
 		return err
 	}
@@ -74,7 +77,8 @@ func (b *Broadcaster) Start(id domain.RoomID) error {
 		b.mu.Unlock()
 		return nil
 	}
-	lr := &liveRoom{dirty: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{})}
+	lr := &liveRoom{dirty: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
+		silent: map[domain.SourceRef]bool{}}
 	b.live[id] = lr
 	b.mu.Unlock()
 
@@ -134,7 +138,7 @@ func (b *Broadcaster) Status(id domain.RoomID) ports.BroadcastStatus {
 // Plan returns what the broadcast would show right now (host preview of the
 // layout, also when off air).
 func (b *Broadcaster) Plan(id domain.RoomID) (domain.CompositionPlan, error) {
-	plan, _, err := b.snapshot(id)
+	plan, _, err := b.snapshot(id, nil)
 	return plan, err
 }
 
@@ -167,7 +171,7 @@ func (b *Broadcaster) loop(id domain.RoomID, lr *liveRoom, applied string) {
 			case <-time.After(b.cfg.Debounce):
 			}
 		}
-		plan, outputs, err := b.snapshot(id)
+		plan, outputs, err := b.snapshot(id, lr)
 		if err != nil || len(outputs) == 0 {
 			reason := "no enabled destination"
 			if err != nil {
@@ -190,11 +194,15 @@ func (b *Broadcaster) loop(id domain.RoomID, lr *liveRoom, applied string) {
 	}
 }
 
-func (b *Broadcaster) snapshot(id domain.RoomID) (domain.CompositionPlan, []ports.Output, error) {
+func (b *Broadcaster) snapshot(id domain.RoomID, lr *liveRoom) (domain.CompositionPlan, []ports.Output, error) {
 	now := b.clock.Now()
 	live := func(ref domain.SourceRef) bool {
 		last := b.tap.LastPacket(id, ref)
-		return !last.IsZero() && now.Sub(last) <= b.cfg.StallAfter
+		ok := !last.IsZero() && now.Sub(last) <= b.cfg.StallAfter
+		if lr != nil {
+			b.noteLiveness(id, lr, ref, ok, last, now)
+		}
+		return ok
 	}
 	return b.hub.Snapshot(id, b.cfg.Output, live)
 }
@@ -206,4 +214,22 @@ func signature(plan domain.CompositionPlan, outputs []ports.Output) string {
 		b.WriteString("|" + o.ID + "=" + o.URL)
 	}
 	return b.String()
+}
+
+// noteLiveness logs the moment a source stops delivering media (it becomes a name card in the
+// picture) and the moment it delivers again: what explains a frozen tile or a quiet mic.
+func (b *Broadcaster) noteLiveness(id domain.RoomID, lr *liveRoom, ref domain.SourceRef, ok bool, last, now time.Time) {
+	was := lr.silent[ref]
+	switch {
+	case !ok && !was:
+		lr.silent[ref] = true
+		silentFor := "never delivered"
+		if !last.IsZero() {
+			silentFor = now.Sub(last).Round(100 * time.Millisecond).String()
+		}
+		b.log.Info("source stopped delivering media", "room", id, "source", ref.String(), "silent_for", silentFor)
+	case ok && was:
+		delete(lr.silent, ref)
+		b.log.Info("source delivering media again", "room", id, "source", ref.String())
+	}
 }

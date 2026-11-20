@@ -96,3 +96,59 @@ cambio de destinos reinicia el flujo desde cero.
 
 `BRIDGE_RECORD_DIR` añade al `tee` un FLV por emisión (útil para auditar o
 depurar una emisión).
+
+## Diagnóstico de la emisión
+
+Cuando un destino (YouTube, Twitch…) corta la emisión, el bridge deja rastro suficiente para saber
+**quién** cortó y **por qué**, y se repara solo. Todo sale por el log estructurado del bridge
+(`kubectl logs deploy/ether-bridge`); las claves de emisión nunca aparecen (se ocultan como `••••`).
+
+### Qué se registra
+
+| Mensaje | Nivel | Cuándo | Campos útiles |
+|---|---|---|---|
+| `broadcast health` | INFO | cada 30 s mientras todo va bien | `out_kbps`, `video_tags_per_s`, `last_tag_age_ms`, `max_write_ms`, `inputs` (cuánto hace que cada fuente entregó un paquete), `restarts` |
+| `broadcast unhealthy` | WARN | cada 5 s (las 3 primeras; luego una de cada 6) si hay un problema | `problems`: `output stalled`, `publisher not reading … backpressure`, `0 bytes sent`; más los campos de arriba |
+| `publisher exited; restarting` | WARN | el publicador murió (la plataforma cerró, la red cayó…) | `kind`, `destination`, `uptime`, `sent_bytes`, `last_tag_age_ms`, `since_last_recompose`, `fail_streak`, `retry_in`, `tail` (las últimas 20 líneas de FFmpeg, ya sin claves) |
+| `output stalled; restarting the compositor run` | ERROR | la salida lleva ≥ 10 s sin escribir tramas | `tag_age_ms`, `attempt` |
+| `output still stalled; restarting the publisher` | ERROR | dos reinicios del compositor no bastaron | `tag_age_ms`, `fail_streak`, `retry_in` |
+| `compositor exited` | WARN | murió la ejecución en el aire | `kind`, `lived`, `tail` |
+| `compositor on air` | INFO | una ejecución empieza a publicar | `run`, `startup_ms` (lo que tardó en dar su primer fotograma) |
+| `recomposing` | INFO | cambió el plan | `reason`: `video+=p-2/camera`, `video-=p-1/screen`, `tiles=3->4`… |
+| `source stopped delivering media` / `source delivering media again` | INFO | una cámara, pantalla o micro deja de entregar paquetes (2,5 s) y cuando vuelve | `source`, `silent_for` |
+
+### Causas (`kind`)
+
+| `kind` | Qué significa | Primera comprobación |
+|---|---|---|
+| `remote-closed` | La plataforma cerró la conexión (`Broken pipe`, `Connection reset`) | Panel de la plataforma: ¿terminó la emisión?, ¿avisos de salud del stream?, ¿otra emisión con la misma clave? |
+| `timeout` | Nada pasó en el tiempo previsto | Red del VPS; `max_write_ms` alto justo antes |
+| `rejected` | Clave o permisos rechazados (4xx, handshake) | Clave de emisión, emisión creada y habilitada |
+| `dns` | No resolvió el host de ingesta | DNS del VPS / URL del destino |
+| `refused` | Conexión rechazada o sin ruta | URL y puerto del destino; salida de red del pod |
+| `encoder` | FFmpeg falló por sí mismo | `tail`; recursos del pod |
+| `stall` | La salida se congeló y el vigilante lo reparó | `inputs` y la CPU del pod |
+
+### Cómo leerlo, ejemplos
+
+- **El corte llegó de la plataforma**: `publisher exited … kind=remote-closed … uptime=3m12s`. Si poco antes
+  hay `broadcast unhealthy … backpressure … max_write_ms=…`, la subida estaba congestionada; si no,
+  la plataforma cortó por su cuenta (mira su panel).
+- **Cortó justo tras un cambio de layout**: `since_last_recompose` pequeño en el mismo mensaje, y un
+  `recomposing reason=…` poco antes.
+- **La imagen se quedó con una tarjeta**: `source stopped delivering media source=p-1/screen silent_for=…`;
+  la causa está en el navegador del invitado, no en el servidor.
+- **Salida casi sin CPU**: es normal con imagen estática; `out_kbps` y `video_tags_per_s` dicen si
+  salen tramas (≈ 30/s) o si de verdad se paró.
+
+### Reparación automática
+
+- **Reinicio con retroceso**: tras un fallo del publicador se reintenta a los 2 s, luego 4, 8, 16 y
+  hasta 30 s (`retry_in`, `fail_streak`); un publicador que vivió un minuto reinicia el contador. Así no
+  se martillea a una plataforma que acaba de cortar.
+- **Vigilante de atascos**: si la emisión está en el aire y no se escribe ninguna trama en 10 s, arranca
+  una ejecución nueva del compositor (la congelada se descarta al tomar el relevo); si tras dos
+  intentos sigue atascada, reinicia también el publicador. Los intentos se espacian 15 s.
+
+Los tiempos (5 s de revisión, 30 s de resumen, 10 s de atasco) son variables del paquete `ffmpeg`
+(`health.go`, `diagnose.go`); las pruebas los acortan para comprobar el comportamiento real con FFmpeg.
