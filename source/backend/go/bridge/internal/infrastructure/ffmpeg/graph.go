@@ -30,6 +30,9 @@ type graphParams struct {
 	// text stores a label and returns the file drawtext reads it from
 	// (textfile avoids escaping user-provided names in the graph).
 	text func(key, content string) string
+	// captionFile is the file the live-captions line is read from, every frame (reload=1), so
+	// the text changes without restarting the run. Empty: no captions in the picture.
+	captionFile string
 }
 
 var safePath = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
@@ -69,6 +72,9 @@ func composeArgs(p graphParams) ([]string, error) {
 	}
 	if p.font != "" && !safePath.MatchString(p.font) {
 		return nil, fmt.Errorf("unsafe font path %q", p.font)
+	}
+	if p.captionFile != "" && !safePath.MatchString(p.captionFile) {
+		return nil, fmt.Errorf("unsafe caption path %q", p.captionFile)
 	}
 
 	var g []string
@@ -127,6 +133,11 @@ func composeArgs(p graphParams) ([]string, error) {
 			final = append(final, drawtext(p.font, p.text(fmt.Sprintf("label-%d", i), t.Label), size,
 				fmt.Sprintf("%d+%d", r.X, size/2+4), fmt.Sprintf("%d+%d-th-%d", r.Y, r.H, size/2+4), true))
 		}
+	}
+	// Live captions: one boxed, centered line block at the bottom, read from a file that is
+	// rewritten in place (an empty file draws nothing, not even the box).
+	if p.font != "" && p.captionFile != "" && p.plan.Captions {
+		final = append(final, captionFilter(p.font, p.captionFile, out))
 	}
 	// Fixed colour properties: every run must yield the same H.264 SPS so the
 	// splicer can drop the repeated sequence header (a mid-stream SPS change
@@ -200,6 +211,15 @@ func drawtext(font, textfile string, size int, x, y string, boxed bool) string {
 		s += ":box=1:boxcolor=0x000000@0.55:boxborderw=8"
 	}
 	return s
+}
+
+// captionFilter draws the captions file at the bottom center of the picture.
+func captionFilter(font, file string, out domain.OutputSettings) string {
+	size, _ := domain.CaptionLayout(out)
+	margin := size
+	return fmt.Sprintf("drawtext=fontfile=%s:textfile=%s:reload=1:expansion=none:fontsize=%d:fontcolor=white:"+
+		"x=(w-text_w)/2:y=h-%d-text_h:text_align=C:line_spacing=%d:box=1:boxcolor=0x000000@0.6:boxborderw=%d",
+		font, file, size, margin, size/4, size/3)
 }
 
 func clamp(v, lo, hi int) int { return max(lo, min(hi, v)) }

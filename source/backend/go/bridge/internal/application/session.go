@@ -89,6 +89,10 @@ func (s *Session) Handle(data []byte) {
 		if err := s.hub.UpdateSelf(*s.self, m.State); err != nil {
 			s.fail(asDomainError(err))
 		}
+	case domain.CaptionMessage:
+		if s.self != nil {
+			s.hub.Caption(*s.self, m.Text)
+		}
 	case domain.LeaveMessage:
 		if s.waiting != "" {
 			s.hub.WaitingGone(s.room, s.waiting, s.conn)

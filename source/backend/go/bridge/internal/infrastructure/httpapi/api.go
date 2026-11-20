@@ -43,6 +43,8 @@ type roomBody struct {
 	Layout   *domain.LayoutMode `json:"layout"`
 	// Admission is "open" (guests are seated at once) or "approval" (they wait for the host).
 	Admission *domain.AdmissionMode `json:"admission"`
+	// Captions turns the live-captions overlay on or off.
+	Captions *bool `json:"captions"`
 }
 
 func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +72,9 @@ func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
 	if body.Admission != nil {
 		settings.Admission = *body.Admission
 	}
+	if body.Captions != nil {
+		settings.Captions = *body.Captions
+	}
 	view, err := s.hub.CreateRoom(domain.RoomID(body.ID), settings)
 	if err != nil {
 		writeError(w, err)
@@ -93,7 +98,7 @@ func (s *Server) updateRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	patch := application.RoomPatch{Title: body.Title, Capacity: body.Capacity, Layout: body.Layout, Admission: body.Admission}
+	patch := application.RoomPatch{Title: body.Title, Capacity: body.Capacity, Layout: body.Layout, Admission: body.Admission, Captions: body.Captions}
 	if body.Host != nil {
 		patch.HostName, patch.HostAvatar = body.Host.Name, body.Host.Avatar
 	}

@@ -21,6 +21,8 @@ func TestParseClientMessages(t *testing.T) {
 			SelfUpdateMessage{State: SelfState{Muted: true, ScreenSharing: true}}},
 		{"ping", `{"type":"ping","t":12.5}`, PingMessage{T: 12.5}},
 		{"leave", `{"type":"leave"}`, LeaveMessage{}},
+		{"caption", `{"type":"caption","text":"hola a todos"}`, CaptionMessage{Text: "hola a todos"}},
+		{"caption without text clears it", `{"type":"caption"}`, CaptionMessage{}},
 		{"unknown is ignored", `{"type":"chat","text":"hola"}`, UnknownMessage{Type: "chat"}},
 	}
 	for _, tc := range cases {
@@ -88,10 +90,10 @@ func TestServerMessagesCarryTheirType(t *testing.T) {
 		NewParticipantJoined(ParticipantInfo{ID: "p-1", Name: "Ana"}),
 		NewParticipantUpdated(ParticipantInfo{ID: "p-1", Name: "Ana"}),
 		NewParticipantLeft("p-1"), NewProfile(DefaultProfile), NewPong(1),
-		NewError(Fatalf(CodeKicked, "bye")),
+		NewError(Fatalf(CodeKicked, "bye")), NewCaptions(true),
 	}
 	want := []string{"room.info", "welcome", "publish.answer", "subscribe.offer", "ice", "tracks",
-		"participant.joined", "participant.updated", "participant.left", "profile", "pong", "error"}
+		"participant.joined", "participant.updated", "participant.left", "profile", "pong", "error", "captions"}
 	for i, m := range msgs {
 		var decoded map[string]any
 		if err := json.Unmarshal([]byte(mustJSON(t, m)), &decoded); err != nil {
@@ -105,6 +107,14 @@ func TestServerMessagesCarryTheirType(t *testing.T) {
 	welcome := mustJSON(t, NewWelcome("p-1", false, "rt", DefaultProfile, nil, nil))
 	if !strings.Contains(welcome, `"iceServers":[]`) || !strings.Contains(welcome, `"participants":[]`) {
 		t.Fatalf("welcome = %s", welcome)
+	}
+	// The captions flag is always present (false by default) and can be set on the welcome.
+	if !strings.Contains(welcome, `"captions":false`) ||
+		!strings.Contains(mustJSON(t, NewWelcome("p-1", false, "rt", DefaultProfile, nil, nil).WithCaptions(true)), `"captions":true`) {
+		t.Fatalf("welcome captions flag = %s", welcome)
+	}
+	if got := mustJSON(t, NewCaptions(true)); got != `{"type":"captions","enabled":true}` {
+		t.Fatalf("captions message = %s", got)
 	}
 	if info := mustJSON(t, NewRoomInfo("demo", "T", HostInfo{Name: "H"}, nil)); !strings.Contains(info, `"channels":[]`) {
 		t.Fatalf("room.info = %s", info)

@@ -65,6 +65,8 @@ type Hub struct {
 	log      *slog.Logger
 	rooms    map[domain.RoomID]*roomEntry
 	onChange func(domain.RoomID)
+	// onCaption receives the (clean) caption lines of guests on stage, outside the lock.
+	onCaption func(room domain.RoomID, speaker domain.ParticipantID, name, text string)
 }
 
 type roomEntry struct {
@@ -140,6 +142,8 @@ type member struct {
 	// dropped socket. Participant ids are sequential and public, so the id
 	// alone must never be enough.
 	resumeToken string
+	// lastCaption is when the guest last sent a caption line (rate limit).
+	lastCaption time.Time
 }
 
 // newResumeToken returns 128 random bits, URL-safe.
@@ -166,7 +170,8 @@ func NewHub(cfg Config, clock ports.Clock, signer *domain.InviteSigner, sfu port
 		cfg.ResumeGrace = 20 * time.Second
 	}
 	h := &Hub{cfg: cfg, clock: clock, signer: signer, sfu: sfu, log: log,
-		rooms: map[domain.RoomID]*roomEntry{}, onChange: func(domain.RoomID) {}}
+		rooms: map[domain.RoomID]*roomEntry{}, onChange: func(domain.RoomID) {},
+		onCaption: func(domain.RoomID, domain.ParticipantID, string, string) {}}
 	sfu.SetListener(h)
 	return h
 }
@@ -174,6 +179,42 @@ func NewHub(cfg Config, clock ports.Clock, signer *domain.InviteSigner, sfu port
 // OnChange registers the callback invoked (outside the lock) after any
 // change that may affect a room's broadcast.
 func (h *Hub) OnChange(fn func(domain.RoomID)) { h.onChange = fn }
+
+// OnCaption registers the consumer of live-caption lines (the broadcaster).
+func (h *Hub) OnCaption(fn func(room domain.RoomID, speaker domain.ParticipantID, name, text string)) {
+	h.onCaption = fn
+}
+
+// captionMinInterval caps how often one guest can replace the line on screen.
+const captionMinInterval = 100 * time.Millisecond
+
+// Caption takes the line a guest's browser is transcribing. It is dropped unless the host turned
+// captions on, the room is open and the guest is on stage (visible in the broadcast); the text is
+// cleaned (no control or text-direction characters, bounded) and a guest that floods is limited.
+// Nothing is stored: the consumer shows the latest line and lets it expire.
+func (h *Hub) Caption(ref ParticipantRef, text string) {
+	h.mu.Lock()
+	entry := h.rooms[ref.Room]
+	if entry == nil || entry.room.Closed || !entry.room.Settings.Captions {
+		h.mu.Unlock()
+		return
+	}
+	p, ok := entry.room.Participant(ref.Participant)
+	m := entry.members[ref.Participant]
+	if !ok || !p.OnStage || m == nil {
+		h.mu.Unlock()
+		return
+	}
+	now := h.clock.Now()
+	if text != "" && now.Sub(m.lastCaption) < captionMinInterval {
+		h.mu.Unlock()
+		return
+	}
+	m.lastCaption = now
+	name := p.Name
+	h.mu.Unlock()
+	h.onCaption(ref.Room, ref.Participant, name, domain.CleanCaption(text))
+}
 
 // ---------------------------------------------------------------------------
 // Signaling use cases
@@ -279,7 +320,7 @@ func (h *Hub) Join(id domain.RoomID, conn ports.Connection, msg domain.JoinMessa
 			}
 			previous := m.conn
 			m.conn = conn
-			conn.Send(domain.NewWelcome(msg.Resume, true, m.resumeToken, h.cfg.Profile, h.cfg.IceServers, entry.room.ParticipantInfos()))
+			conn.Send(domain.NewWelcome(msg.Resume, true, m.resumeToken, h.cfg.Profile, h.cfg.IceServers, entry.room.ParticipantInfos()).WithCaptions(entry.room.Settings.Captions))
 			peer := m.peer
 			h.mu.Unlock()
 			if previous != nil && previous != conn {
@@ -323,7 +364,7 @@ func (h *Hub) Join(id domain.RoomID, conn ports.Connection, msg domain.JoinMessa
 	}
 	m := &member{conn: conn, resumeToken: newResumeToken()}
 	entry.members[p.ID] = m
-	conn.Send(domain.NewWelcome(p.ID, false, m.resumeToken, h.cfg.Profile, h.cfg.IceServers, entry.room.ParticipantInfos()))
+	conn.Send(domain.NewWelcome(p.ID, false, m.resumeToken, h.cfg.Profile, h.cfg.IceServers, entry.room.ParticipantInfos()).WithCaptions(entry.room.Settings.Captions))
 	h.broadcastLocked(entry, p.ID, domain.NewParticipantJoined(p.Info()))
 	h.mu.Unlock()
 	h.log.Info("participant joined", "room", id, "participant", p.ID, "name", p.Name)
@@ -490,6 +531,7 @@ type RoomPatch struct {
 	Capacity   *int
 	Layout     *domain.LayoutMode
 	Admission  *domain.AdmissionMode
+	Captions   *bool
 }
 
 // UpdateRoom edits the room settings; guests see the new title on their next
@@ -520,6 +562,10 @@ func (h *Hub) UpdateRoom(id domain.RoomID, patch RoomPatch) (RoomView, error) {
 	if patch.Admission != nil {
 		s.Admission = *patch.Admission
 	}
+	captionsChanged := patch.Captions != nil && *patch.Captions != s.Captions
+	if patch.Captions != nil {
+		s.Captions = *patch.Captions
+	}
 	if err := s.Validate(); err != nil {
 		h.mu.Unlock()
 		return RoomView{}, err
@@ -530,6 +576,9 @@ func (h *Hub) UpdateRoom(id domain.RoomID, patch RoomPatch) (RoomView, error) {
 		for _, w := range entry.waiting {
 			h.approveLocked(w)
 		}
+	}
+	if captionsChanged {
+		h.broadcastLocked(entry, "", domain.NewCaptions(s.Captions))
 	}
 	view := h.viewLocked(entry)
 	h.mu.Unlock()

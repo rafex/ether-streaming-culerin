@@ -18,6 +18,7 @@ type RoomView struct {
 	Capacity     int                    `json:"capacity"`
 	Layout       domain.LayoutMode      `json:"layout"`
 	Admission    domain.AdmissionMode   `json:"admission"`
+	Captions     bool                   `json:"captions"`
 	Waiting      []WaitingView          `json:"waiting"`
 	Closed       bool                   `json:"closed"`
 	Ephemeral    bool                   `json:"ephemeral"`
@@ -64,7 +65,7 @@ func (h *Hub) viewLocked(entry *roomEntry) RoomView {
 	r := entry.room
 	view := RoomView{
 		ID: r.ID, Title: r.Settings.Title, Host: r.Settings.Host, Capacity: r.Settings.Capacity,
-		Layout: r.Settings.Layout, Admission: r.Settings.Admission, Waiting: []WaitingView{}, Closed: r.Closed, Ephemeral: r.Ephemeral, CreatedAt: r.CreatedAt,
+		Layout: r.Settings.Layout, Admission: r.Settings.Admission, Captions: r.Settings.Captions, Waiting: []WaitingView{}, Closed: r.Closed, Ephemeral: r.Ephemeral, CreatedAt: r.CreatedAt,
 		Channels: r.Channels(), Participants: []ParticipantView{}, Destinations: []DestinationView{},
 	}
 	for _, p := range r.Participants() {

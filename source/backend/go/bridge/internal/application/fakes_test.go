@@ -169,6 +169,8 @@ type fakeCompositor struct {
 	outputs [][]ports.Output
 	stopped int
 	failing bool
+	// captions is every SetCaption call, in order.
+	captions []string
 }
 
 func (c *fakeCompositor) Apply(_ domain.RoomID, plan domain.CompositionPlan, outputs []ports.Output) error {
@@ -180,6 +182,21 @@ func (c *fakeCompositor) Apply(_ domain.RoomID, plan domain.CompositionPlan, out
 	c.applied = append(c.applied, plan)
 	c.outputs = append(c.outputs, outputs)
 	return nil
+}
+
+func (c *fakeCompositor) SetCaption(_ domain.RoomID, text string) {
+	c.mu.Lock()
+	c.captions = append(c.captions, text)
+	c.mu.Unlock()
+}
+
+func (c *fakeCompositor) lastCaption() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.captions) == 0 {
+		return "", false
+	}
+	return c.captions[len(c.captions)-1], true
 }
 
 func (c *fakeCompositor) Stop(domain.RoomID) { c.mu.Lock(); c.stopped++; c.mu.Unlock() }

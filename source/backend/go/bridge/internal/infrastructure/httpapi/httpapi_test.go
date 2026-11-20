@@ -28,7 +28,8 @@ func (c *nullCompositor) Apply(id domain.RoomID, _ domain.CompositionPlan, _ []p
 	c.live[id] = true
 	return nil
 }
-func (c *nullCompositor) Stop(id domain.RoomID) { delete(c.live, id) }
+func (c *nullCompositor) SetCaption(domain.RoomID, string) {}
+func (c *nullCompositor) Stop(id domain.RoomID)            { delete(c.live, id) }
 func (c *nullCompositor) Status(id domain.RoomID) ports.BroadcastStatus {
 	return ports.BroadcastStatus{Live: c.live[id]}
 }
@@ -103,6 +104,19 @@ func TestAPIRoomLifecycle(t *testing.T) {
 	}
 	if code, _ := call(t, srv, "PATCH", "/api/v1/rooms/demo", `{"layout":"pip"}`, adminToken); code != 400 {
 		t.Fatal("bad layout accepted")
+	}
+	// Live captions are off by default and the host turns them on and off.
+	if room["captions"] != false {
+		t.Fatalf("captions must start off: %v", room["captions"])
+	}
+	if code, body := call(t, srv, "PATCH", "/api/v1/rooms/demo", `{"captions":true}`, adminToken); code != 200 || body["captions"] != true {
+		t.Fatalf("captions on: %d %v", code, body)
+	}
+	if code, body := call(t, srv, "GET", "/api/v1/rooms/demo", ``, adminToken); code != 200 || body["captions"] != true {
+		t.Fatalf("captions must persist: %d %v", code, body)
+	}
+	if code, body := call(t, srv, "PATCH", "/api/v1/rooms/demo", `{"captions":false}`, adminToken); code != 200 || body["captions"] != false {
+		t.Fatalf("captions off: %d %v", code, body)
 	}
 
 	code, inv := call(t, srv, "POST", "/api/v1/rooms/demo/invites", `{"ttlSeconds":3600}`, adminToken)

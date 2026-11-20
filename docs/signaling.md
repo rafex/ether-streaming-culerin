@@ -52,6 +52,16 @@ aquí solo se documenta cómo lo implementa el puente.
   coincide, el puente **no** toca la sesión ajena: ignora `resume`, registra un
   aviso y admite al cliente como invitado nuevo (así los clientes anteriores al
   token solo pierden su sitio en lugar de fallar).
+- **Subtítulos en vivo** (aditivo: los clientes que no los conocen los ignoran). El anfitrión los
+  activa por sala (`captions` en la API). `welcome` incluye `captions: bool` y, al cambiar el ajuste,
+  todos reciben `{"type":"captions","enabled":bool}`. Un invitado que lo haya elegido transcribe su
+  micrófono **en su navegador** y envía `{"type":"caption","text":"…"}` con la frase que está diciendo
+  (la última sustituye a la anterior; `text` vacío la borra). El puente la ignora si los subtítulos
+  están apagados, la sala está cerrada o el invitado no está en escena; limpia el texto (sin caracteres
+  de control ni de dirección, 240 caracteres como máximo, conservando lo más reciente) y admite una
+  frase cada 100 ms por invitado. No se guarda ninguna transcripción: se dibuja en la emisión la
+  última frase («Nombre: texto», dos líneas como mucho) y desaparece a los 6 s sin otra nueva. Ver
+  [Subtítulos](composition.md#subtitulos-en-vivo).
 - Modo desarrollo: salas bajo demanda (`Sala de pruebas · <id>`, anfitrión
   `Anfitrión de pruebas`, canales youtube/twitch), token `invalid` rechazado y
   sala `closed` inexistente — igual que `dev-bridge.mjs` del webrelay.

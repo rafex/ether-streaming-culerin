@@ -241,6 +241,7 @@ function renderParticipants(room) {
 
 function renderWaiting(room) {
   if (document.activeElement !== $('#admission-mode')) $('#admission-mode').value = room.admission;
+  $('#captions-toggle').checked = Boolean(room.captions);
   const waiting = room.waiting || [];
   $('#waiting-box').hidden = waiting.length === 0;
   $('#no-waiting').hidden = waiting.length > 0 || room.admission !== 'approval';
@@ -463,6 +464,7 @@ $('#invite-copy').addEventListener('click', async () => {
 });
 
 $('#admission-mode').addEventListener('change', (event) => mutate(`/rooms/${state.selected}`, 'PATCH', { admission: event.target.value }));
+$('#captions-toggle').addEventListener('change', (event) => mutate(`/rooms/${state.selected}`, 'PATCH', { captions: event.target.checked }));
 $('#layout-mode').addEventListener('change', (event) => mutate(`/rooms/${state.selected}`, 'PATCH', { layout: event.target.value }));
 
 $('#destination-form').addEventListener('submit', async (event) => {

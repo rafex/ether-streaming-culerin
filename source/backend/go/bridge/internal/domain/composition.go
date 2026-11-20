@@ -51,6 +51,9 @@ type CompositionPlan struct {
 	Title string      `json:"title"`
 	Tiles []Tile      `json:"tiles"`
 	Audio []SourceRef `json:"audio"`
+	// Captions reserves the live-captions overlay. Only whether it exists is part of the plan: the
+	// text changes every second and is updated in place (Compositor.SetCaption), not by recomposing.
+	Captions bool `json:"captions"`
 }
 
 // VideoSources lists the tracks the picture needs, in tile order.
@@ -76,6 +79,7 @@ func (p CompositionPlan) Signature() string {
 	for _, a := range p.Audio {
 		b.WriteString(a.String() + ";")
 	}
+	fmt.Fprintf(&b, "|captions=%t", p.Captions)
 	return b.String()
 }
 
@@ -95,7 +99,7 @@ type stageItem struct {
 // PlanComposition lays out the participants on stage according to the
 // room's layout mode.
 func PlanComposition(room *Room, output OutputSettings, live LiveFunc) CompositionPlan {
-	plan := CompositionPlan{Output: output, Title: room.Settings.Title, Tiles: []Tile{}, Audio: []SourceRef{}}
+	plan := CompositionPlan{Output: output, Title: room.Settings.Title, Tiles: []Tile{}, Audio: []SourceRef{}, Captions: room.Settings.Captions}
 	isLive := func(p *Participant, s MediaSource) bool {
 		return p.Published[s] && live(SourceRef{p.ID, s})
 	}
