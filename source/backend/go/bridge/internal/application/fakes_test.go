@@ -220,6 +220,8 @@ type fakeTap struct {
 	mu    sync.Mutex
 	clock *fakeClock
 	dead  map[domain.SourceRef]bool
+	// speech is the activity each source reports (0..1); absent means silence.
+	speech map[domain.SourceRef]float64
 }
 
 func (t *fakeTap) Tap(domain.RoomID, domain.SourceRef, func([]byte)) (ports.Codec, func(), error) {
@@ -233,6 +235,22 @@ func (t *fakeTap) LastPacket(_ domain.RoomID, ref domain.SourceRef) time.Time {
 		return time.Time{}
 	}
 	return t.clock.Now()
+}
+
+func (t *fakeTap) Activity(_ domain.RoomID, ref domain.SourceRef) float64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.speech[ref]
+}
+
+// say sets how much a source is talking from now on.
+func (t *fakeTap) say(ref domain.SourceRef, activity float64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.speech == nil {
+		t.speech = map[domain.SourceRef]float64{}
+	}
+	t.speech[ref] = activity
 }
 
 type fixture struct {

@@ -20,6 +20,10 @@ type BroadcastConfig struct {
 	Debounce time.Duration
 	// Tick re-evaluates track liveness periodically.
 	Tick time.Duration
+	// SpeakerEvery is how often the voice-activated layout looks at who is talking.
+	SpeakerEvery time.Duration
+	// Speaker tunes how readily the focus follows a voice (zero: domain.DefaultSpeakerParams).
+	Speaker domain.SpeakerParams
 }
 
 // Broadcaster drives the compositor of every live room: it recomputes the
@@ -41,7 +45,9 @@ type liveRoom struct {
 	dirty chan struct{}
 	stop  chan struct{}
 	done  chan struct{}
-	err   string
+	// speakerDone ends with the loop that follows who is talking.
+	speakerDone chan struct{}
+	err         string
 	// silent holds the sources that stopped delivering (only the broadcast loop touches it), so
 	// the log says when a camera/screen/mic went quiet and when it came back.
 	silent map[domain.SourceRef]bool
@@ -61,6 +67,9 @@ func NewBroadcaster(hub *Hub, comp ports.Compositor, tap ports.MediaTap, clock p
 	}
 	if cfg.Tick == 0 {
 		cfg.Tick = time.Second
+	}
+	if cfg.SpeakerEvery == 0 {
+		cfg.SpeakerEvery = 250 * time.Millisecond
 	}
 	b := &Broadcaster{hub: hub, comp: comp, tap: tap, clock: clock, cfg: cfg, log: log, live: map[domain.RoomID]*liveRoom{}}
 	hub.OnChange(b.notify)
@@ -83,7 +92,7 @@ func (b *Broadcaster) Start(id domain.RoomID) error {
 		return nil
 	}
 	lr := &liveRoom{dirty: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
-		silent: map[domain.SourceRef]bool{}}
+		speakerDone: make(chan struct{}), silent: map[domain.SourceRef]bool{}}
 	b.live[id] = lr
 	b.mu.Unlock()
 
@@ -96,6 +105,7 @@ func (b *Broadcaster) Start(id domain.RoomID) error {
 	}
 	b.log.Info("broadcast started", "room", id, "outputs", len(outputs))
 	go b.loop(id, lr, signature(plan, outputs))
+	go b.speakerLoop(id, lr)
 	return nil
 }
 
@@ -110,6 +120,7 @@ func (b *Broadcaster) Stop(id domain.RoomID) {
 	if ok {
 		close(lr.stop)
 		<-lr.done
+		<-lr.speakerDone
 	}
 	b.comp.Stop(id)
 	if ok {
@@ -263,5 +274,41 @@ func (b *Broadcaster) noteLiveness(id domain.RoomID, lr *liveRoom, ref domain.So
 	case ok && was:
 		delete(lr.silent, ref)
 		b.log.Info("source delivering media again", "room", id, "source", ref.String())
+	}
+}
+
+// speakerLoop makes the voice-activated layout follow the conversation: it samples how much each
+// guest on stage is talking and moves the focus when the SpeakerTracker says so.
+func (b *Broadcaster) speakerLoop(id domain.RoomID, lr *liveRoom) {
+	defer close(lr.speakerDone)
+	tracker := domain.NewSpeakerTracker(b.cfg.Speaker)
+	ticker := time.NewTicker(b.cfg.SpeakerEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-lr.stop:
+			return
+		case <-ticker.C:
+			b.followSpeaker(id, tracker)
+		}
+	}
+}
+
+func (b *Broadcaster) followSpeaker(id domain.RoomID, tracker *domain.SpeakerTracker) {
+	layout, mics, err := b.hub.StageMics(id)
+	if err != nil || layout != domain.LayoutActive {
+		if tracker.Current() != "" {
+			tracker.Reset()
+			b.hub.SetActiveSpeaker(id, "")
+		}
+		return
+	}
+	activity := make(map[domain.ParticipantID]float64, len(mics))
+	for _, pid := range mics {
+		activity[pid] = b.tap.Activity(id, domain.SourceRef{Participant: pid, Source: domain.SourceMicrophone})
+	}
+	if who, changed := tracker.Update(b.clock.Now(), activity); changed {
+		b.log.Info("active speaker changed", "room", id, "participant", who)
+		b.hub.SetActiveSpeaker(id, who)
 	}
 }

@@ -106,6 +106,7 @@ func PlanComposition(room *Room, output OutputSettings, live LiveFunc) Compositi
 
 	var people, screens []stageItem
 	var speaker []stageItem
+	var voice *stageItem // the guest the voice-activated layout follows
 	for i, p := range room.Participants() {
 		if !p.OnStage {
 			continue
@@ -128,6 +129,13 @@ func PlanComposition(room *Room, output OutputSettings, live LiveFunc) Compositi
 		if sharing && isLive(p, SourceScreenAudio) {
 			plan.Audio = append(plan.Audio, SourceRef{p.ID, SourceScreenAudio})
 		}
+		if p.ID == room.ActiveSpeaker {
+			item := person
+			if sharing {
+				item = screens[len(screens)-1]
+			}
+			voice = &item
+		}
 		if i == firstOnStage(room) {
 			if sharing {
 				speaker = append(speaker, screens[len(screens)-1])
@@ -142,7 +150,10 @@ func PlanComposition(room *Room, output OutputSettings, live LiveFunc) Compositi
 	switch room.Settings.Layout {
 	case LayoutGrid:
 		rest = append(append(rest, screens...), people...)
-	case LayoutSpeaker:
+	case LayoutSpeaker, LayoutActive:
+		if room.Settings.Layout == LayoutActive && voice != nil {
+			speaker = []stageItem{*voice}
+		}
 		if len(speaker) > 0 {
 			focus = &speaker[0]
 			for _, it := range append(append([]stageItem{}, screens...), people...) {

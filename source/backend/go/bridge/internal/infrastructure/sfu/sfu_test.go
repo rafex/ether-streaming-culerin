@@ -48,13 +48,16 @@ type client struct {
 	got  chan *webrtc.TrackRemote
 }
 
-func newClient(t *testing.T) *client {
+func newClient(t *testing.T) *client { return newClientWith(t, webrtc.NewAPI()) }
+
+// newClientWith builds a client whose peer connections come from api (a browser-like media engine).
+func newClientWith(t *testing.T, api *webrtc.API) *client {
 	t.Helper()
-	pub, err := webrtc.NewPeerConnection(webrtc.Configuration{BundlePolicy: webrtc.BundlePolicyMaxBundle})
+	pub, err := api.NewPeerConnection(webrtc.Configuration{BundlePolicy: webrtc.BundlePolicyMaxBundle})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := webrtc.NewPeerConnection(webrtc.Configuration{BundlePolicy: webrtc.BundlePolicyMaxBundle})
+	sub, err := api.NewPeerConnection(webrtc.Configuration{BundlePolicy: webrtc.BundlePolicyMaxBundle})
 	if err != nil {
 		t.Fatal(err)
 	}

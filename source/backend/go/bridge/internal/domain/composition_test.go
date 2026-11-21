@@ -117,6 +117,44 @@ func TestSpeakerLayout(t *testing.T) {
 	}
 }
 
+func TestVoiceActivatedLayoutFollowsTheActiveSpeaker(t *testing.T) {
+	r, _, b := stageRoom(t, LayoutActive)
+	// Nobody has spoken: the first guest on stage, like the speaker layout.
+	plan := PlanComposition(r, DefaultOutput, allLive)
+	if !plan.Tiles[0].Focus || plan.Tiles[0].Label != "Ana" {
+		t.Fatalf("no speaker yet = %+v", plan.Tiles)
+	}
+	r.ActiveSpeaker = b.ID
+	plan = PlanComposition(r, DefaultOutput, allLive)
+	if !plan.Tiles[0].Focus || plan.Tiles[0].Label != "Beto" || len(plan.Tiles) != 2 {
+		t.Fatalf("Beto speaks = %+v", plan.Tiles)
+	}
+	// A speaker who left the stage falls back to the first guest.
+	r.SetOnStage(b.ID, false)
+	plan = PlanComposition(r, DefaultOutput, allLive)
+	if len(plan.Tiles) != 1 || plan.Tiles[0].Label != "Ana" || !plan.Tiles[0].Focus {
+		t.Fatalf("speaker off stage = %+v", plan.Tiles)
+	}
+}
+
+func TestVoiceActivatedLayoutShowsTheSpeakersScreenWhenSharing(t *testing.T) {
+	r, a, b := stageRoom(t, LayoutActive)
+	r.SetPublished(b.ID, SourceScreen, true)
+	b.State.ScreenSharing = true
+	r.ActiveSpeaker = b.ID
+	_ = a
+	plan := PlanComposition(r, DefaultOutput, allLive)
+	if !plan.Tiles[0].Focus || plan.Tiles[0].Source.Source != SourceScreen {
+		t.Fatalf("a sharing speaker's screen takes the focus: %+v", plan.Tiles)
+	}
+}
+
+func TestLayoutActiveIsAKnownMode(t *testing.T) {
+	if !LayoutActive.Valid() || LayoutMode("loud").Valid() {
+		t.Fatal("active must be valid and unknown modes not")
+	}
+}
+
 func TestGridLayoutCentresLastRow(t *testing.T) {
 	rects := gridLayout(3, 1280, 720, 12)
 	if len(rects) != 3 || rects[2].Y <= rects[0].Y {

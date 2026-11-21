@@ -63,6 +63,30 @@ flowchart LR
   `onfail=ignore` por destino (un destino caído no tumba a los demás). Si
   muere del todo, se reinicia a los 2 s.
 
+## Layout por voz
+
+Con `layout: "active"` el foco (la baldosa grande) sigue a quien habla, y el resto queda en la columna.
+El puente lo deduce del **nivel de audio que cada navegador ya envía en sus paquetes RTP** (extensión
+`urn:ietf:params:rtp-hdrext:ssrc-audio-level`, RFC 6464): no decodifica audio ni añade WASM, y el contrato
+con el webrelay no cambia. Un navegador que no la ofrezca simplemente no puede tomar el foco (se queda el
+primero en escena).
+
+Cada cambio de foco es una recomposición (≈2 s de corte, ver más abajo), así que el seguimiento es lento y
+pegajoso a propósito (`domain.SpeakerTracker`):
+
+- Una persona es candidata cuando el ≥35 % de la última ~½ s fue voz, y debe seguir así **1,2 s** antes de
+  tomar el foco (una tos o una palabra no lo mueve).
+- Quien tiene el foco lo conserva mientras siga hablando (≥12 %), aunque otro lo interrumpa.
+- Entre dos cambios pasan **al menos 8 s**.
+- Si quien tenía el foco sale de escena, el siguiente que hable lo toma de inmediato.
+- Sin nadie hablando, el foco es el primer invitado en escena (como `speaker`).
+
+El seguimiento solo corre **con la emisión en el aire** (sin emisión no hay nada que recomponer): `activeSpeaker`
+en el estado de la sala sigue vacío hasta entonces. En el log: `active speaker changed room=… participant=…`.
+
+Verificado con Chrome real y el puente real: dos invitados con micrófono sintético, y el foco pasa de uno a
+otro a los ~2 s de que cambie quién suena.
+
 ## Cambios de layout sin cortar la emisión
 
 FFmpeg no admite cambiar entradas en caliente, así que cada plan nuevo

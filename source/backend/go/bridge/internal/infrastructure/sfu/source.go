@@ -27,7 +27,11 @@ type source struct {
 	local     *webrtc.TrackLocalStaticRTP
 	publisher *webrtc.PeerConnection
 
-	last     atomic.Int64 // unix nanos of the last packet
+	last atomic.Int64 // unix nanos of the last packet
+	// levelID is the negotiated id of the audio-level extension on the publish connection (0: the
+	// browser did not offer it, so there is no way to tell who is speaking from this track).
+	levelID  uint8
+	activity activityMeter
 	lastPLI  atomic.Int64
 	mu       sync.Mutex
 	taps     map[int]func([]byte)
@@ -36,13 +40,13 @@ type source struct {
 	closeOne sync.Once
 }
 
-func newSource(ref domain.SourceRef, remote *webrtc.TrackRemote, publisher *webrtc.PeerConnection) (*source, error) {
+func newSource(ref domain.SourceRef, remote *webrtc.TrackRemote, publisher *webrtc.PeerConnection, levelID uint8) (*source, error) {
 	local, err := webrtc.NewTrackLocalStaticRTP(remote.Codec().RTPCodecCapability,
 		string(ref.Participant)+"-"+string(ref.Source), string(ref.Participant))
 	if err != nil {
 		return nil, err
 	}
-	return &source{ref: ref, remote: remote, local: local, publisher: publisher,
+	return &source{ref: ref, remote: remote, local: local, publisher: publisher, levelID: levelID,
 		taps: map[int]func([]byte){}, closed: make(chan struct{})}, nil
 }
 
@@ -60,6 +64,11 @@ func (s *source) run(onEnd func()) {
 		}
 		if err := pkt.Unmarshal(buf[:n]); err != nil {
 			continue
+		}
+		if s.levelID != 0 {
+			if voiceBit, level, ok := parseAudioLevel(pkt.Header.GetExtension(s.levelID)); ok {
+				s.activity.observe(isSpeech(voiceBit, level), time.Now())
+			}
 		}
 		pkt.Header.Extension = false
 		pkt.Header.Extensions = nil

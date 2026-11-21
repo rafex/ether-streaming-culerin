@@ -79,6 +79,9 @@ type MediaTap interface {
 	RequestKeyframe(room domain.RoomID, ref domain.SourceRef)
 	// LastPacket is when the source last delivered media (zero if never).
 	LastPacket(room domain.RoomID, ref domain.SourceRef) time.Time
+	// Activity is how much the source's audio has carried speech over the last half second, 0..1
+	// (0 for a source that is gone, muted, or whose browser does not report audio levels).
+	Activity(room domain.RoomID, ref domain.SourceRef) float64
 }
 
 // Output is one destination of the broadcast, already resolved to its

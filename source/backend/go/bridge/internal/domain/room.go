@@ -36,11 +36,14 @@ const (
 	LayoutGrid LayoutMode = "grid"
 	// LayoutSpeaker gives the first participant on stage the focus.
 	LayoutSpeaker LayoutMode = "speaker"
+	// LayoutActive is voice-activated: the focus follows whoever is talking (the first participant
+	// on stage until somebody does).
+	LayoutActive LayoutMode = "active"
 )
 
 // Valid reports whether m is a known layout.
 func (m LayoutMode) Valid() bool {
-	return m == LayoutAuto || m == LayoutGrid || m == LayoutSpeaker
+	return m == LayoutAuto || m == LayoutGrid || m == LayoutSpeaker || m == LayoutActive
 }
 
 const (
@@ -105,7 +108,7 @@ func (s *RoomSettings) Validate() error {
 		s.Layout = LayoutAuto
 	}
 	if !s.Layout.Valid() {
-		return Errorf(CodeBadRequest, "layout %q is not auto|grid|speaker", s.Layout)
+		return Errorf(CodeBadRequest, "layout %q is not auto|grid|speaker|active", s.Layout)
 	}
 	return nil
 }
@@ -137,9 +140,12 @@ type Room struct {
 	Closed       bool
 	Ephemeral    bool // created on demand in development mode
 	Destinations []Destination
-	participants []*Participant
-	nextID       int
-	nextDest     int
+	// ActiveSpeaker is who has the focus in the voice-activated layout ("" until somebody talks).
+	// The broadcast service keeps it up to date; it is not saved with the settings.
+	ActiveSpeaker ParticipantID
+	participants  []*Participant
+	nextID        int
+	nextDest      int
 }
 
 // NewRoom validates settings and builds an open room.

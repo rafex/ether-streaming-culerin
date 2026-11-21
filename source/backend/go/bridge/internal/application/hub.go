@@ -974,6 +974,39 @@ func (h *Hub) Kick(ref ParticipantRef) error {
 	return nil
 }
 
+// StageMics lists the guests on stage that publish a microphone, in join order, with the room's
+// layout: what the voice-activated layout needs to decide who is talking.
+func (h *Hub) StageMics(id domain.RoomID) (domain.LayoutMode, []domain.ParticipantID, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	entry, err := h.entryLocked(id)
+	if err != nil {
+		return "", nil, err
+	}
+	var mics []domain.ParticipantID
+	for _, p := range entry.room.Participants() {
+		if p.OnStage && p.Published[domain.SourceMicrophone] {
+			mics = append(mics, p.ID)
+		}
+	}
+	return entry.room.Settings.Layout, mics, nil
+}
+
+// SetActiveSpeaker records who has the focus in the voice-activated layout ("" for nobody). A
+// change recomposes the broadcast, like any other change of the room.
+func (h *Hub) SetActiveSpeaker(id domain.RoomID, who domain.ParticipantID) {
+	h.mu.Lock()
+	entry, err := h.entryLocked(id)
+	changed := err == nil && entry.room.ActiveSpeaker != who
+	if changed {
+		entry.room.ActiveSpeaker = who
+	}
+	h.mu.Unlock()
+	if changed {
+		h.onChange(id)
+	}
+}
+
 // Snapshot computes the broadcast plan and outputs of a room.
 func (h *Hub) Snapshot(id domain.RoomID, output domain.OutputSettings, live domain.LiveFunc) (domain.CompositionPlan, []ports.Output, error) {
 	h.mu.Lock()
