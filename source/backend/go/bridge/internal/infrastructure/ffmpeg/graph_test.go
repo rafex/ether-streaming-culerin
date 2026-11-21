@@ -272,3 +272,46 @@ func TestAudioInputsUseTheMediaClock(t *testing.T) {
 		t.Errorf("audio chain must count samples:\n%s", line)
 	}
 }
+
+func TestCaptionsAreDrawnFromAReloadedFileOnlyWhenThePlanAsksForThem(t *testing.T) {
+	withCaptions := plan()
+	withCaptions.Captions = true
+	build := func(p domain.CompositionPlan, font, file string) string {
+		args, err := composeArgs(graphParams{plan: p, font: font, text: text, captionFile: file})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(args, " ")
+	}
+
+	on := build(withCaptions, "/f/a.ttf", "/w/caption.txt")
+	for _, want := range []string{"textfile=/w/caption.txt", "reload=1", "expansion=none", "box=1", "text_align=C", "x=(w-text_w)/2"} {
+		if !strings.Contains(on, want) {
+			t.Errorf("the caption filter lacks %q:\n%s", want, on)
+		}
+	}
+	// It goes after the name labels and before the fixed colour properties of the last stage.
+	if i, j := strings.Index(on, "caption.txt"), strings.Index(on, "setparams="); i < 0 || j < i {
+		t.Errorf("the caption must be drawn before setparams:\n%s", on)
+	}
+	for name, got := range map[string]string{
+		"plan without captions": build(plan(), "/f/a.ttf", "/w/caption.txt"),
+		"no caption file":       build(withCaptions, "/f/a.ttf", ""),
+		"no font":               build(withCaptions, "", "/w/caption.txt"),
+	} {
+		if strings.Contains(got, "caption.txt") {
+			t.Errorf("%s: the caption filter must not be there", name)
+		}
+	}
+	if _, err := composeArgs(graphParams{plan: withCaptions, font: "/f/a.ttf", text: text, captionFile: "/w/x;rm -rf.txt"}); err == nil {
+		t.Error("an unsafe caption path was accepted")
+	}
+}
+
+func TestOnlyTheExistenceOfCaptionsIsPartOfThePlan(t *testing.T) {
+	a, b := plan(), plan()
+	b.Captions = true
+	if a.Signature() == b.Signature() {
+		t.Fatal("turning captions on must change the plan (one recomposition)")
+	}
+}

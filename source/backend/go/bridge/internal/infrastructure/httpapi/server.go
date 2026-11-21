@@ -96,6 +96,7 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("POST /api/v1/rooms/{room}/destinations", s.addDestination)
 	api.HandleFunc("PATCH /api/v1/rooms/{room}/destinations/{dest}", s.updateDestination)
 	api.HandleFunc("DELETE /api/v1/rooms/{room}/destinations/{dest}", s.removeDestination)
+	api.HandleFunc("POST /api/v1/rooms/{room}/caption", s.hostCaption)
 	api.HandleFunc("POST /api/v1/rooms/{room}/broadcast/start", s.startBroadcast)
 	api.HandleFunc("POST /api/v1/rooms/{room}/broadcast/stop", s.stopBroadcast)
 	api.HandleFunc("GET /api/v1/rooms/{room}/layout", s.layout)

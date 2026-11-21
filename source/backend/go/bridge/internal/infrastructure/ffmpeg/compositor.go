@@ -95,6 +95,17 @@ func (c *Compositor) Apply(room domain.RoomID, plan domain.CompositionPlan, outp
 	return p.apply(plan, outputs)
 }
 
+// SetCaption implements ports.Compositor: the live-captions line is rewritten in place (atomic
+// rename), and the running compositor picks it up on its next frame. No new run is started.
+func (c *Compositor) SetCaption(room domain.RoomID, text string) {
+	c.mu.Lock()
+	p := c.rooms[room]
+	c.mu.Unlock()
+	if p != nil {
+		p.setCaption(text)
+	}
+}
+
 // Stop implements ports.Compositor.
 func (c *Compositor) Stop(room domain.RoomID) {
 	c.mu.Lock()
@@ -312,7 +323,8 @@ func (p *pipeline) startComposeLocked() error {
 		}
 		inputs = append(inputs, in)
 	}
-	args, err := composeArgs(graphParams{plan: p.plan, inputs: inputs, font: p.c.cfg.FontFile, text: run.text})
+	args, err := composeArgs(graphParams{plan: p.plan, inputs: inputs, font: p.c.cfg.FontFile, text: run.text,
+		captionFile: p.captionFileLocked()})
 	if err != nil {
 		run.close(p.c)
 		return err
@@ -458,6 +470,39 @@ func (p *pipeline) stop() {
 		publisher.finish()
 	}
 	_ = os.RemoveAll(p.dir)
+}
+
+// captionFileLocked is where this room's live captions live, outside any run directory so the
+// file survives layout changes. It is created empty the first time the plan asks for captions.
+func (p *pipeline) captionFileLocked() string {
+	if !p.plan.Captions {
+		return ""
+	}
+	path := filepath.Join(p.dir, "caption.txt")
+	if _, err := os.Stat(path); err != nil {
+		_ = os.MkdirAll(p.dir, 0o700)
+		_ = os.WriteFile(path, nil, 0o600)
+	}
+	return path
+}
+
+// setCaption rewrites the captions file atomically: drawtext re-reads it every frame and must never
+// see a half-written line.
+func (p *pipeline) setCaption(text string) {
+	p.mu.Lock()
+	path := p.captionFileLocked()
+	p.mu.Unlock()
+	if path == "" {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(text), 0o600); err != nil {
+		p.c.log.Warn("caption not written", "room", p.room, "err", err)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		p.c.log.Warn("caption not written", "room", p.room, "err", err)
+	}
 }
 
 func (p *pipeline) status() ports.BroadcastStatus {

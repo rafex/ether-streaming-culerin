@@ -68,6 +68,9 @@ type RoomSettings struct {
 	Capacity  int
 	Layout    LayoutMode
 	Admission AdmissionMode
+	// Captions turns the live-captions overlay on: guests who opted in send their transcription
+	// and the bridge draws the latest line on the broadcast.
+	Captions bool
 }
 
 // Validate normalises and checks the settings.

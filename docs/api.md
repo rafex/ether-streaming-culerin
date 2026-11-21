@@ -16,9 +16,9 @@ devuelven completas.
 |---------------|--------|-----------|
 | `GET /config` | — | `{devMode, webrelayUrl, output}` |
 | `GET /rooms` | — | `{rooms: [Room]}` (más recientes primero) |
-| `POST /rooms` | `{id?, title, host: {name, avatar?}, capacity?, layout?, admission?}` | 201 `Room` (id aleatorio si se omite) |
+| `POST /rooms` | `{id?, title, host: {name, avatar?}, capacity?, layout?, admission?, captions?}` | 201 `Room` (id aleatorio si se omite) |
 | `GET /rooms/{room}` | — | `Room` |
-| `PATCH /rooms/{room}` | `{title?, host?: {name?, avatar?}, capacity?, layout?, admission?}` | `Room` |
+| `PATCH /rooms/{room}` | `{title?, host?: {name?, avatar?}, capacity?, layout?, admission?, captions?}` | `Room` |
 | `DELETE /rooms/{room}` | — | 204; cierra la sala: expulsa (`room-closed`) e invalida las invitaciones |
 | `POST /rooms/{room}/invites` | `{ttlSeconds?, maxUses?}` | 201 `{id, token, url, expiresAt, maxUses}`. `maxUses` 0–1000 (0: sin límite). **Cuenta asientos, no personas** (ver abajo) |
 | `GET /rooms/{room}/invites` | — | 200 lista `{id, createdAt, expiresAt, maxUses, uses, revoked, expired, active}`, la más nueva primero. **Nunca incluye el token ni el enlace** |
@@ -26,6 +26,7 @@ devuelven completas.
 | `POST /rooms/{room}/destinations` | `{name, url, streamKey, kind?, enabled?}` | 201 `Destination` |
 | `PATCH /rooms/{room}/destinations/{id}` | `{enabled}` | `Room` |
 | `DELETE /rooms/{room}/destinations/{id}` | — | 204 |
+| `POST /rooms/{room}/caption` | `{text}` | 204; muestra la frase como subtítulo del anfitrión (6 s; `""` la borra). 409 si los subtítulos están apagados |
 | `POST /rooms/{room}/broadcast/start` | — | `Room` (409 sin destinos activos) |
 | `POST /rooms/{room}/broadcast/stop` | — | `Room` |
 | `GET /rooms/{room}/layout` | — | `CompositionPlan` actual (también fuera del aire) |
@@ -41,7 +42,7 @@ Públicos: `GET /healthz` y `GET /signal` (señalización v2).
 ```json
 {
   "id": "demo", "title": "Podcast", "host": {"name": "Rafex"},
-  "capacity": 8, "layout": "auto", "closed": false, "ephemeral": false,
+  "capacity": 8, "layout": "auto", "captions": false, "closed": false, "ephemeral": false,
   "createdAt": "2026-10-13T17:00:00Z", "channels": ["youtube"],
   "participants": [{
     "id": "p-1", "name": "Ana", "title": "Invitada", "muted": false,

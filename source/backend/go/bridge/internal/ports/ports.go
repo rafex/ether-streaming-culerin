@@ -106,6 +106,9 @@ type BroadcastStatus struct {
 type Compositor interface {
 	// Apply starts the broadcast or brings it in line with plan/outputs.
 	Apply(room domain.RoomID, plan domain.CompositionPlan, outputs []Output) error
+	// SetCaption replaces the live-captions line drawn on the broadcast ("" clears it). It never
+	// recomposes: the text is updated in place.
+	SetCaption(room domain.RoomID, text string)
 	// Stop ends the room's broadcast.
 	Stop(room domain.RoomID)
 	// Status reports the room's broadcast state.

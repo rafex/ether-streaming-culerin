@@ -45,6 +45,10 @@ type liveRoom struct {
 	// silent holds the sources that stopped delivering (only the broadcast loop touches it), so
 	// the log says when a camera/screen/mic went quiet and when it came back.
 	silent map[domain.SourceRef]bool
+
+	// captionTimer clears the live-captions line when nobody has spoken for captionHold.
+	captionMu    sync.Mutex
+	captionTimer ports.Timer
 }
 
 // NewBroadcaster hooks itself to the hub's change notifications.
@@ -60,6 +64,7 @@ func NewBroadcaster(hub *Hub, comp ports.Compositor, tap ports.MediaTap, clock p
 	}
 	b := &Broadcaster{hub: hub, comp: comp, tap: tap, clock: clock, cfg: cfg, log: log, live: map[domain.RoomID]*liveRoom{}}
 	hub.OnChange(b.notify)
+	hub.OnCaption(b.onCaption)
 	return b
 }
 
@@ -214,6 +219,33 @@ func signature(plan domain.CompositionPlan, outputs []ports.Output) string {
 		b.WriteString("|" + o.ID + "=" + o.URL)
 	}
 	return b.String()
+}
+
+// captionHold is how long a caption line stays on screen without a newer one.
+const captionHold = 6 * time.Second
+
+// onCaption shows the latest line a guest on stage is saying: wrapped to the picture's width, drawn in
+// place by the compositor (no recomposition), and cleared by itself after captionHold.
+func (b *Broadcaster) onCaption(id domain.RoomID, _ domain.ParticipantID, name, text string) {
+	b.mu.Lock()
+	lr, ok := b.live[id]
+	b.mu.Unlock()
+	if !ok {
+		return
+	}
+	lr.captionMu.Lock()
+	defer lr.captionMu.Unlock()
+	if lr.captionTimer != nil {
+		lr.captionTimer.Stop()
+		lr.captionTimer = nil
+	}
+	if text == "" {
+		b.comp.SetCaption(id, "")
+		return
+	}
+	_, width := domain.CaptionLayout(b.cfg.Output)
+	b.comp.SetCaption(id, domain.WrapCaption(name, text, width, domain.CaptionLines))
+	lr.captionTimer = b.clock.AfterFunc(captionHold, func() { b.comp.SetCaption(id, "") })
 }
 
 // noteLiveness logs the moment a source stops delivering media (it becomes a name card in the

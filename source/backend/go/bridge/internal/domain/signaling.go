@@ -110,9 +110,11 @@ type (
 		Candidate IceCandidate
 	}
 	SelfUpdateMessage struct{ State SelfState }
-	PingMessage       struct{ T float64 }
-	LeaveMessage      struct{}
-	UnknownMessage    struct{ Type string }
+	// CaptionMessage is the line the guest's browser is transcribing right now; empty clears it.
+	CaptionMessage struct{ Text string }
+	PingMessage    struct{ T float64 }
+	LeaveMessage   struct{}
+	UnknownMessage struct{ Type string }
 )
 
 func (PeekMessage) clientMessage()            {}
@@ -121,6 +123,7 @@ func (PublishOfferMessage) clientMessage()    {}
 func (SubscribeAnswerMessage) clientMessage() {}
 func (ClientIceMessage) clientMessage()       {}
 func (SelfUpdateMessage) clientMessage()      {}
+func (CaptionMessage) clientMessage()         {}
 func (PingMessage) clientMessage()            {}
 func (LeaveMessage) clientMessage()           {}
 func (UnknownMessage) clientMessage()         {}
@@ -143,6 +146,7 @@ type rawClientMessage struct {
 	CameraOff bool                         `json:"cameraOff"`
 	Sharing   bool                         `json:"screenSharing"`
 	T         *float64                     `json:"t"`
+	Text      string                       `json:"text"`
 }
 
 // ParseClientMessage validates one JSON text frame from the webrelay.
@@ -218,6 +222,8 @@ func ParseClientMessage(data []byte) (ClientMessage, error) {
 		return SelfUpdateMessage{State: SelfState{
 			Muted: raw.Muted, CameraOff: raw.CameraOff, ScreenSharing: raw.Sharing,
 		}}, nil
+	case "caption":
+		return CaptionMessage{Text: raw.Text}, nil
 	case "ping":
 		if raw.T == nil {
 			return nil, fmt.Errorf("ping.t missing")
@@ -281,7 +287,24 @@ type WelcomeMessage struct {
 	Profile      QualityProfile    `json:"profile"`
 	IceServers   []IceServer       `json:"iceServers"`
 	Participants []ParticipantInfo `json:"participants"`
+	// Captions says whether the host turned live captions on (they can change later: `captions`).
+	Captions bool `json:"captions"`
 }
+
+// CaptionsMessage tells every guest that the host turned live captions on or off.
+type CaptionsMessage struct {
+	Type    string `json:"type"`
+	Enabled bool   `json:"enabled"`
+}
+
+func NewCaptions(enabled bool) CaptionsMessage {
+	return CaptionsMessage{Type: "captions", Enabled: enabled}
+}
+
+func (m CaptionsMessage) MessageType() string { return m.Type }
+
+// WithCaptions sets the welcome's captions flag.
+func (m WelcomeMessage) WithCaptions(on bool) WelcomeMessage { m.Captions = on; return m }
 
 type SDPMessage struct {
 	Type string `json:"type"`

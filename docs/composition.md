@@ -152,3 +152,21 @@ Cuando un destino (YouTube, Twitch…) corta la emisión, el bridge deja rastro 
 
 Los tiempos (5 s de revisión, 30 s de resumen, 10 s de atasco) son variables del paquete `ffmpeg`
 (`health.go`, `diagnose.go`); las pruebas los acortan para comprobar el comportamiento real con FFmpeg.
+
+## Subtítulos en vivo
+
+Con `captions: true` en la sala, cada invitado que lo elija transcribe su micrófono en su navegador y envía la frase
+que dice ([`caption`](signaling.md)). El puente dibuja la última frase en la parte baja de la emisión, centrada, con
+caja translúcida, dos líneas como máximo (`Nombre: texto`; si no cabe, se muestran las palabras más recientes tras «…»)
+y la borra a los 6 s sin otra nueva. Solo cuentan los invitados **en escena**.
+
+**Sin recomponer.** El texto cambia cada segundo, y cada recomposición cuesta un corte de ~2 s, así que no forma parte
+del plan: el plan solo dice *si* hay subtítulos (`captions` en `CompositionPlan`; activarlos recompone una vez). El texto
+vive en `<sala>/caption.txt` y el filtro `drawtext` lo relee en cada fotograma (`reload=1`); el puente lo reescribe con un
+reemplazo atómico (`caption.txt.tmp` + `rename`), de modo que FFmpeg nunca ve una frase a medias. Un archivo vacío no
+dibuja nada, ni siquiera la caja. La prueba con FFmpeg real
+(`TestCaptionsChangeInPlaceWithoutRecomposing`) comprueba que el texto cambia en el vídeo con una sola ejecución del
+compositor.
+
+El tamaño de letra y los caracteres por línea salen del tamaño de la emisión (`domain.CaptionLayout`).
+Sin fuente instalada (`BRIDGE_FONT_FILE`) no se dibuja ningún texto, tampoco los subtítulos.
