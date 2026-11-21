@@ -20,6 +20,7 @@ func (t *countingTap) Tap(domain.RoomID, domain.SourceRef, func([]byte)) (ports.
 	return ports.Codec{}, func() {}, nil
 }
 func (t *countingTap) LastPacket(domain.RoomID, domain.SourceRef) time.Time { return time.Time{} }
+func (t *countingTap) Activity(domain.RoomID, domain.SourceRef) float64     { return 0 }
 func (t *countingTap) RequestKeyframe(domain.RoomID, domain.SourceRef) {
 	t.mu.Lock()
 	t.times = append(t.times, time.Now())

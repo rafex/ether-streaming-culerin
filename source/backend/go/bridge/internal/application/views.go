@@ -12,21 +12,23 @@ import (
 // RoomView is the host API's representation of a room. Stream keys are
 // always masked.
 type RoomView struct {
-	ID           domain.RoomID          `json:"id"`
-	Title        string                 `json:"title"`
-	Host         domain.HostInfo        `json:"host"`
-	Capacity     int                    `json:"capacity"`
-	Layout       domain.LayoutMode      `json:"layout"`
-	Admission    domain.AdmissionMode   `json:"admission"`
-	Captions     bool                   `json:"captions"`
-	Waiting      []WaitingView          `json:"waiting"`
-	Closed       bool                   `json:"closed"`
-	Ephemeral    bool                   `json:"ephemeral"`
-	CreatedAt    time.Time              `json:"createdAt"`
-	Channels     []string               `json:"channels"`
-	Participants []ParticipantView      `json:"participants"`
-	Destinations []DestinationView      `json:"destinations"`
-	Broadcast    *ports.BroadcastStatus `json:"broadcast,omitempty"`
+	ID        domain.RoomID        `json:"id"`
+	Title     string               `json:"title"`
+	Host      domain.HostInfo      `json:"host"`
+	Capacity  int                  `json:"capacity"`
+	Layout    domain.LayoutMode    `json:"layout"`
+	Admission domain.AdmissionMode `json:"admission"`
+	Captions  bool                 `json:"captions"`
+	// ActiveSpeaker is who has the focus in the voice-activated layout ("" when nobody has talked).
+	ActiveSpeaker domain.ParticipantID   `json:"activeSpeaker,omitempty"`
+	Waiting       []WaitingView          `json:"waiting"`
+	Closed        bool                   `json:"closed"`
+	Ephemeral     bool                   `json:"ephemeral"`
+	CreatedAt     time.Time              `json:"createdAt"`
+	Channels      []string               `json:"channels"`
+	Participants  []ParticipantView      `json:"participants"`
+	Destinations  []DestinationView      `json:"destinations"`
+	Broadcast     *ports.BroadcastStatus `json:"broadcast,omitempty"`
 }
 
 // WaitingView is a guest in the waiting room, as the host sees them.
@@ -65,7 +67,7 @@ func (h *Hub) viewLocked(entry *roomEntry) RoomView {
 	r := entry.room
 	view := RoomView{
 		ID: r.ID, Title: r.Settings.Title, Host: r.Settings.Host, Capacity: r.Settings.Capacity,
-		Layout: r.Settings.Layout, Admission: r.Settings.Admission, Captions: r.Settings.Captions, Waiting: []WaitingView{}, Closed: r.Closed, Ephemeral: r.Ephemeral, CreatedAt: r.CreatedAt,
+		Layout: r.Settings.Layout, Admission: r.Settings.Admission, Captions: r.Settings.Captions, ActiveSpeaker: r.ActiveSpeaker, Waiting: []WaitingView{}, Closed: r.Closed, Ephemeral: r.Ephemeral, CreatedAt: r.CreatedAt,
 		Channels: r.Channels(), Participants: []ParticipantView{}, Destinations: []DestinationView{},
 	}
 	for _, p := range r.Participants() {

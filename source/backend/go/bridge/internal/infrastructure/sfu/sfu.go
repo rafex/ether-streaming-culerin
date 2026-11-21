@@ -79,6 +79,10 @@ func New(cfg Config, log *slog.Logger) (*SFU, error) {
 			return nil, fmt.Errorf("register codec %s: %w", c.params.MimeType, err)
 		}
 	}
+	// Who is talking (voice-activated layout): browsers report each packet's loudness in this extension.
+	if err := media.RegisterHeaderExtension(webrtc.RTPHeaderExtensionCapability{URI: audioLevelURI}, webrtc.RTPCodecTypeAudio); err != nil {
+		return nil, fmt.Errorf("register audio-level extension: %w", err)
+	}
 	registry := &interceptor.Registry{}
 	if err := webrtc.RegisterDefaultInterceptors(media, registry); err != nil {
 		return nil, fmt.Errorf("register interceptors: %w", err)
@@ -171,6 +175,14 @@ func (s *SFU) LastPacket(roomID domain.RoomID, ref domain.SourceRef) time.Time {
 		return src.lastPacket()
 	}
 	return time.Time{}
+}
+
+// Activity implements ports.MediaTap.
+func (s *SFU) Activity(roomID domain.RoomID, ref domain.SourceRef) float64 {
+	if src := s.source(roomID, ref); src != nil {
+		return src.activity.read(time.Now())
+	}
+	return 0
 }
 
 func (s *SFU) source(roomID domain.RoomID, ref domain.SourceRef) *source {

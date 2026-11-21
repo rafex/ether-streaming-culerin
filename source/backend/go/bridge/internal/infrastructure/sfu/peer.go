@@ -116,7 +116,15 @@ func (p *peer) newPublishConnection() (*webrtc.PeerConnection, error) {
 			p.sfu.log.Warn("track without declared source", "room", p.room.id, "participant", p.id, "mid", mid)
 			return
 		}
-		src, err := newSource(domain.SourceRef{Participant: p.id, Source: kind}, remote, pub)
+		var levelID uint8
+		if kind == domain.SourceMicrophone {
+			for _, ext := range receiver.GetParameters().HeaderExtensions {
+				if ext.URI == audioLevelURI {
+					levelID = uint8(ext.ID)
+				}
+			}
+		}
+		src, err := newSource(domain.SourceRef{Participant: p.id, Source: kind}, remote, pub, levelID)
 		if err != nil {
 			p.sfu.log.Error("cannot relay track", "err", err)
 			return

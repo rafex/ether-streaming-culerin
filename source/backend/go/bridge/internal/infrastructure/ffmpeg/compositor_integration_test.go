@@ -23,6 +23,7 @@ func (noTap) Tap(domain.RoomID, domain.SourceRef, func([]byte)) (ports.Codec, fu
 }
 func (noTap) RequestKeyframe(domain.RoomID, domain.SourceRef)      {}
 func (noTap) LastPacket(domain.RoomID, domain.SourceRef) time.Time { return time.Time{} }
+func (noTap) Activity(domain.RoomID, domain.SourceRef) float64     { return 0 }
 
 func TestCompositorKeepsOneStreamAcrossLayoutChanges(t *testing.T) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {

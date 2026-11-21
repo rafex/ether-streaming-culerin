@@ -64,7 +64,8 @@ Públicos: `GET /healthz` y `GET /signal` (señalización v2).
   `lastErrorAt` es cuándo ocurrió y `outKbps` lo que se envió a los destinos en los últimos 5 s.
   Cómo leer los logs de un corte: [Diagnóstico de la emisión](composition.md#diagnostico-de-la-emision).
 - `layout`: `auto` (mosaico; la pantalla compartida en foco con las cámaras en
-  columna), `grid` (siempre mosaico), `speaker` (el primero en escena en foco).
+  columna), `grid` (siempre mosaico), `speaker` (el primero en escena en foco), `active`
+  (por voz: el foco sigue a quien habla, y la sala informa `activeSpeaker`; ver [Layout por voz](composition.md#layout-por-voz)).
 - `kind`: `youtube`, `twitch`, `facebook`, `custom` (se deduce del host si se
   omite). Es lo que el lobby muestra como "canales".
 - **Admisión** (`admission`): `open` (por defecto) sienta al invitado en cuanto

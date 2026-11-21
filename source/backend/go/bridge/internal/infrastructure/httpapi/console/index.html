@@ -40,7 +40,7 @@
             <div class="row">
               <label>Capacidad<input name="capacity" type="number" min="1" max="16" value="8"></label>
               <label>Composición<select name="layout">
-                <option value="auto">Automática</option><option value="grid">Mosaico</option><option value="speaker">Orador</option>
+                <option value="auto">Automática</option><option value="grid">Mosaico</option><option value="speaker">Orador</option><option value="active">Quien habla</option>
               </select></label>
             </div>
             <button type="submit">Crear sala</button>
@@ -91,7 +91,7 @@
           <div class="card">
             <h2>Composición</h2>
             <label>Diseño<select id="layout-mode">
-              <option value="auto">Automática (pantalla en foco)</option><option value="grid">Mosaico</option><option value="speaker">Orador (primero en escena)</option>
+              <option value="auto">Automática (pantalla en foco)</option><option value="grid">Mosaico</option><option value="speaker">Orador (primero en escena)</option><option value="active">Quien habla (el foco sigue a la voz)</option>
             </select></label>
             <svg id="layout-preview" class="preview" viewBox="0 0 1280 720" role="img" aria-label="Vista esquemática de la emisión"></svg>
           </div>
